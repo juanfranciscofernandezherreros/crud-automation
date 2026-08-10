@@ -80,10 +80,10 @@ def get_pom_xml(entity_lower):
 </project>
 """
 
-DOCKERFILE = """FROM eclipse-temurin:21-jdk-alpine AS builder
+DOCKERFILE = """FROM maven:3.9.9-eclipse-temurin-21-alpine AS builder
 WORKDIR /app
 COPY . .
-RUN ./mvnw clean package -DskipTests
+RUN mvn clean package -DskipTests
 
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
@@ -177,6 +177,7 @@ import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 @Entity
@@ -196,6 +197,7 @@ def get_dto(class_name, dto_fields):
     return f"""package com.example.crud.dto;
 
 import lombok.Data;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 @Data
@@ -394,14 +396,23 @@ public class {entity_name}Controller {{
 APP_MAIN = """package com.example.crud;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
 
 @SpringBootApplication
-@EnableJpaAuditing
 public class CrudApplication {
     public static void main(String[] args) {
         SpringApplication.run(CrudApplication.class, args);
     }
+}
+"""
+
+AUDITING_CONFIG = """package com.example.crud.configuration;
+
+import org.springframework.context.annotation.Configuration;
+import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
+
+@Configuration
+@EnableJpaAuditing
+public class JpaAuditingConfiguration {
 }
 """
 
@@ -571,13 +582,15 @@ class {entity_name}ControllerTest {{
     void create_ValidInput_Returns201() throws Exception {{
         {entity_name}CreateDTO createDTO = new {entity_name}CreateDTO();
         {entity_name}ResponseDTO responseDTO = new {entity_name}ResponseDTO();
+        responseDTO.setId(1);
 
         Mockito.when(service.create(any({entity_name}CreateDTO.class))).thenReturn(responseDTO);
 
         mockMvc.perform(post("/api/{entity_lower}s")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(createDTO)))
-                .andExpect(status().isCreated());
+                .andExpect(status().isCreated())
+                .andExpect(header().string("Location", "http://localhost/api/{entity_lower}s/1"));
     }}
 
     @Test

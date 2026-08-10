@@ -5,6 +5,8 @@ crud-*/
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.m2/
+.generated-tests-*/
 .coverage
 htmlcov/
 

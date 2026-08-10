@@ -11,6 +11,7 @@ fuente versionado.
 
 - Python 3.10 o superior.
 - No requiere dependencias externas de Python.
+- Java 21 y Maven 3.9 para compilar y probar los proyectos generados.
 
 ## Uso
 
@@ -77,12 +78,30 @@ tests/                    Pruebas de la automatización Python
 python -m unittest discover -s tests -v
 ```
 
-Las pruebas validan el análisis de atributos, los errores de entrada, la
-normalización de entidades y el comportamiento del CLI sin generar proyectos
-reales en el repositorio.
+Las pruebas unitarias validan las entradas y el comportamiento del CLI. La
+suite de aceptación genera varios proyectos en directorios temporales y ejecuta
+`mvn verify` para comprobar que el código Java compila, sus tests Spring pasan y
+el JAR final se construye correctamente. Si Maven no está instalado, esa prueba
+se omite.
+
+También puedes comprobar manualmente un proyecto recién generado:
+
+```powershell
+mvn -f .\crud-producto\pom.xml verify
+```
 
 ## Salida
 
 Cada ejecución genera un directorio `crud-<entidad>/` con el proyecto Spring
 Boot. Estos directorios están excluidos por `.gitignore`; pueden borrarse y
-regenerarse en cualquier momento.
+regenerarse en cualquier momento. El repositorio conserva únicamente el
+generador Python, sus pruebas y la documentación.
+
+Para eliminar todos los proyectos generados localmente:
+
+```powershell
+Get-ChildItem -Directory -Filter "crud-*" | Remove-Item -Recurse -Force
+```
+
+La prueba de aceptación realiza esta limpieza automáticamente porque genera
+los proyectos en un directorio temporal.

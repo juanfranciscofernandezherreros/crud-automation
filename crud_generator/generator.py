@@ -1,7 +1,5 @@
 """Orquestación de la generación de un proyecto CRUD."""
 
-import os
-
 from .fields import generate_dto_fields, generate_entity_fields, generate_sql_fields
 from .parsing import normalize_entity_name, parse_attributes
 from . import templates
@@ -35,6 +33,10 @@ def generate_project(entity_name, attrs_str):
     )
 
     write_file(f"{java_base}/CrudApplication.java", templates.APP_MAIN)
+    write_file(
+        f"{java_base}/configuration/JpaAuditingConfiguration.java",
+        templates.AUDITING_CONFIG,
+    )
     write_file(
         f"{java_base}/exception/GlobalExceptionHandler.java",
         templates.EXCEPTION_HANDLER,
@@ -86,14 +88,5 @@ def generate_project(entity_name, attrs_str):
         f"{test_base}/controller/{entity_name}ControllerTest.java",
         templates.get_controller_test(entity_name, entity_lower),
     )
-
-    wrapper_dir = f"{base_dir}/.mvn/wrapper"
-    os.makedirs(wrapper_dir, exist_ok=True)
-    mvnw_path = f"{base_dir}/mvnw"
-    write_file(mvnw_path, "#!/bin/sh\n# Dummy Maven Wrapper\n")
-    try:
-        os.chmod(mvnw_path, 0o755)
-    except OSError:
-        pass
 
     return base_dir
