@@ -196,6 +196,7 @@ public class {entity_name} {{
 def get_dto(class_name, dto_fields):
     return f"""package com.example.crud.dto;
 
+import jakarta.validation.constraints.*;
 import lombok.Data;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -546,10 +547,50 @@ class {entity_name}ServiceTest {{
 }}
 """
 
-def get_controller_test(entity_name, entity_lower):
+def get_controller_test(
+    entity_name,
+    entity_lower,
+    create_assignments,
+    has_required_fields,
+    invalid_assignments,
+):
+    invalid_test = ""
+    if has_required_fields:
+        invalid_test = f"""
+    @Test
+    void create_MissingRequiredInput_Returns400() throws Exception {{
+        {entity_name}CreateDTO createDTO = new {entity_name}CreateDTO();
+
+        mockMvc.perform(post("/api/{entity_lower}s")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(createDTO)))
+                .andExpect(status().isBadRequest());
+
+        Mockito.verifyNoInteractions(service);
+    }}
+"""
+
+    constraint_test = ""
+    if invalid_assignments:
+        constraint_test = f"""
+    @Test
+    void create_InvalidValue_Returns400() throws Exception {{
+        {entity_name}CreateDTO createDTO = new {entity_name}CreateDTO();
+{invalid_assignments}
+
+        mockMvc.perform(post("/api/{entity_lower}s")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(createDTO)))
+                .andExpect(status().isBadRequest());
+
+        Mockito.verifyNoInteractions(service);
+    }}
+"""
+
     return f"""package com.example.crud.controller;
 
 import com.example.crud.dto.{entity_name}CreateDTO;
+import com.example.crud.dto.{entity_name}PatchDTO;
 import com.example.crud.dto.{entity_name}ResponseDTO;
 import com.example.crud.service.{entity_name}Service;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -561,8 +602,12 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+
 import static org.mockito.ArgumentMatchers.any;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -581,6 +626,7 @@ class {entity_name}ControllerTest {{
     @Test
     void create_ValidInput_Returns201() throws Exception {{
         {entity_name}CreateDTO createDTO = new {entity_name}CreateDTO();
+{create_assignments}
         {entity_name}ResponseDTO responseDTO = new {entity_name}ResponseDTO();
         responseDTO.setId(1);
 
@@ -591,6 +637,20 @@ class {entity_name}ControllerTest {{
                 .content(objectMapper.writeValueAsString(createDTO)))
                 .andExpect(status().isCreated())
                 .andExpect(header().string("Location", "http://localhost/api/{entity_lower}s/1"));
+    }}
+{invalid_test}
+{constraint_test}
+
+    @Test
+    void patch_EmptyInput_Returns200() throws Exception {{
+        {entity_name}ResponseDTO responseDTO = new {entity_name}ResponseDTO();
+        Mockito.when(service.patch(Mockito.eq(1), any({entity_name}PatchDTO.class)))
+                .thenReturn(responseDTO);
+
+        mockMvc.perform(patch("/api/{entity_lower}s/1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{{}}"))
+                .andExpect(status().isOk());
     }}
 
     @Test

@@ -25,6 +25,12 @@ La definición de campos usa el formato `nombre:tipo`, separando los campos
 con comas. Debe existir exactamente un campo llamado `id` y los nombres de
 atributo deben escribirse en `lower_snake_case`.
 
+Las validaciones se añaden después del tipo, separadas por `:`:
+
+```powershell
+python .\generate_crud.py Producto "id:int, nombre:string:not_blank:max=120, precio:double:required:positive"
+```
+
 Tipos admitidos:
 
 | Tipo | Java | PostgreSQL |
@@ -37,10 +43,24 @@ Tipos admitidos:
 | `datetime` | `LocalDateTime` | `TIMESTAMP` |
 | `date` | `LocalDate` | `DATE` |
 
+Validaciones admitidas:
+
+| Regla | Tipos | Anotación generada |
+| --- | --- | --- |
+| `required` | Todos | `@NotNull` |
+| `not_blank` | `string` | `@NotBlank` |
+| `positive` | `int`, `float`, `double` | `@Positive` |
+| `min=N` | `string` y numéricos | `@Size(min=N)` o `@DecimalMin` |
+| `max=N` | `string` y numéricos | `@Size(max=N)` o `@DecimalMax` |
+
+`CreateDTO` y `UpdateDTO` aplican las reglas obligatorias. `PatchDTO` permite
+omitir cualquier campo, pero valida los valores que sí se envían. Los campos
+de auditoría se gestionan internamente y no aparecen en los DTO de entrada.
+
 Ejemplo con auditoría:
 
 ```powershell
-python .\generate_crud.py Pedido "id:int, numero:string, creado_en:datetime, actualizado_en:datetime"
+python .\generate_crud.py Pedido "id:int, numero:string:not_blank:max=40, creado_en:datetime, actualizado_en:datetime"
 ```
 
 ## Validación
@@ -52,6 +72,8 @@ El generador detiene la ejecución antes de escribir archivos cuando encuentra:
 - Nombres que no siguen `lower_snake_case`.
 - Atributos duplicados.
 - Tipos desconocidos.
+- Validaciones desconocidas o incompatibles con el tipo.
+- Límites no numéricos, negativos para strings o con `min` mayor que `max`.
 - Una definición sin el campo `id`.
 
 Los errores de uso devuelven código de salida `1` y las definiciones inválidas

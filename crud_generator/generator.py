@@ -1,6 +1,13 @@
 """Orquestación de la generación de un proyecto CRUD."""
 
-from .fields import generate_dto_fields, generate_entity_fields, generate_sql_fields
+from .fields import (
+    generate_dto_fields,
+    generate_entity_fields,
+    generate_invalid_test_dto_assignments,
+    generate_sql_fields,
+    generate_test_dto_assignments,
+    has_required_input,
+)
 from .parsing import normalize_entity_name, parse_attributes
 from . import templates
 from .writer import write_file
@@ -55,9 +62,24 @@ def generate_project(entity_name, attrs_str):
     )
 
     dto_definitions = [
-        ("CreateDTO", generate_dto_fields(attrs, ignore_id=True, ignore_dates=True)),
-        ("UpdateDTO", generate_dto_fields(attrs, ignore_id=True, ignore_dates=True)),
-        ("PatchDTO", generate_dto_fields(attrs, ignore_id=True, ignore_dates=True)),
+        (
+            "CreateDTO",
+            generate_dto_fields(
+                attrs, ignore_id=True, ignore_audit=True, validation_mode="write"
+            ),
+        ),
+        (
+            "UpdateDTO",
+            generate_dto_fields(
+                attrs, ignore_id=True, ignore_audit=True, validation_mode="write"
+            ),
+        ),
+        (
+            "PatchDTO",
+            generate_dto_fields(
+                attrs, ignore_id=True, ignore_audit=True, validation_mode="patch"
+            ),
+        ),
         ("ResponseDTO", generate_dto_fields(attrs)),
     ]
     for suffix, fields in dto_definitions:
@@ -86,7 +108,13 @@ def generate_project(entity_name, attrs_str):
     )
     write_file(
         f"{test_base}/controller/{entity_name}ControllerTest.java",
-        templates.get_controller_test(entity_name, entity_lower),
+        templates.get_controller_test(
+            entity_name,
+            entity_lower,
+            generate_test_dto_assignments(attrs),
+            has_required_input(attrs),
+            generate_invalid_test_dto_assignments(attrs),
+        ),
     )
 
     return base_dir

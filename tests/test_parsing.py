@@ -10,11 +10,15 @@ from crud_generator.generator import generate_project
 
 class ParseAttributesTest(unittest.TestCase):
     def test_parses_valid_definition(self):
-        attributes = parse_attributes("id:int, created_at:datetime, name:string")
+        attributes = parse_attributes(
+            "id:int, created_at:datetime, name:string:not_blank:max=120"
+        )
 
         self.assertEqual("createdAt", attributes[1]["camel_name"])
         self.assertEqual("LocalDateTime", attributes[1]["java_type"])
         self.assertEqual("VARCHAR(255)", attributes[2]["sql_type"])
+        self.assertTrue(attributes[2]["validations"]["not_blank"])
+        self.assertEqual("120", attributes[2]["validations"]["max"])
 
     def test_rejects_malformed_attribute(self):
         with self.assertRaisesRegex(DefinitionError, "nombre:tipo"):
@@ -35,6 +39,18 @@ class ParseAttributesTest(unittest.TestCase):
     def test_rejects_invalid_attribute_name(self):
         with self.assertRaisesRegex(DefinitionError, "lower_snake_case"):
             parse_attributes("id:int, Nombre Completo:string")
+
+    def test_rejects_validation_for_incompatible_type(self):
+        with self.assertRaisesRegex(DefinitionError, "solo se puede aplicar a números"):
+            parse_attributes("id:int, nombre:string:positive")
+
+    def test_rejects_unknown_validation(self):
+        with self.assertRaisesRegex(DefinitionError, "Validación desconocida"):
+            parse_attributes("id:int, nombre:string:unique")
+
+    def test_rejects_incoherent_limits(self):
+        with self.assertRaisesRegex(DefinitionError, "no puede superar"):
+            parse_attributes("id:int, nombre:string:min=10:max=5")
 
 
 class NormalizeEntityNameTest(unittest.TestCase):

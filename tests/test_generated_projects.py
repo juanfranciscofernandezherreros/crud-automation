@@ -26,11 +26,17 @@ def working_directory(path):
 class GeneratedProjectAcceptanceTest(unittest.TestCase):
     PROJECTS = {
         "Pedido": (
-            "id:int, numero:string, creado_en:datetime, "
+            "id:int, numero:string:not_blank:max=40, creado_en:datetime, "
             "actualizado_en:datetime"
         ),
-        "Producto": "id:int, nombre:string, precio:float, activo:boolean",
-        "Cliente": "id:int, nombre:string, nacimiento:date, saldo:double",
+        "Producto": (
+            "id:int, nombre:string:not_blank:max=120, "
+            "precio:float:required:positive, activo:boolean:required"
+        ),
+        "Cliente": (
+            "id:int, nombre:string:not_blank:min=2:max=80, "
+            "nacimiento:date:required, saldo:double:positive"
+        ),
     }
 
     def test_generated_projects_compile_and_pass_their_tests(self):
