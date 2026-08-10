@@ -26,16 +26,19 @@ def working_directory(path):
 class GeneratedProjectAcceptanceTest(unittest.TestCase):
     PROJECTS = {
         "Pedido": (
+            "layered",
             "id:int, numero:string:not_blank:max=40, creado_en:datetime, "
-            "actualizado_en:datetime"
+            "actualizado_en:datetime",
         ),
         "Producto": (
+            "hexagonal",
             "id:int, nombre:string:not_blank:max=120, "
-            "precio:float:required:positive, activo:boolean:required"
+            "precio:float:required:positive, activo:boolean:required",
         ),
         "Cliente": (
+            "clean",
             "id:int, nombre:string:not_blank:min=2:max=80, "
-            "nacimiento:date:required, saldo:double:positive"
+            "nacimiento:date:required, saldo:double:positive",
         ),
     }
 
@@ -46,10 +49,10 @@ class GeneratedProjectAcceptanceTest(unittest.TestCase):
         ) as temporary_directory:
             root = Path(temporary_directory)
             with working_directory(root):
-                for entity_name, attributes in self.PROJECTS.items():
+                for entity_name, (architecture, attributes) in self.PROJECTS.items():
                     with self.subTest(entity=entity_name):
                         project_directory = root / generate_project(
-                            entity_name, attributes
+                            entity_name, attributes, architecture
                         )
                         self._run_maven_tests(project_directory)
 

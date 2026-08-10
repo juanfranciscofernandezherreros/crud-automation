@@ -3,6 +3,30 @@
 from decimal import Decimal, ROUND_CEILING
 
 
+def generate_plain_fields(attrs):
+    return "\n".join(
+        f"    private {attr['java_type']} {attr['camel_name']};" for attr in attrs
+    )
+
+
+def generate_domain_update_statements(attrs, patch=False):
+    lines = []
+    for attr in attrs:
+        if attr["is_id"] or attr["is_audit"]:
+            continue
+        suffix = attr["camel_name"][0].upper() + attr["camel_name"][1:]
+        assignment = f"current.set{suffix}({'changes' if patch else 'replacement'}.get{suffix}());"
+        if patch:
+            lines.append(
+                f"        if (changes.get{suffix}() != null) {{\n"
+                f"            {assignment}\n"
+                "        }"
+            )
+        else:
+            lines.append(f"        {assignment}")
+    return "\n".join(lines)
+
+
 def generate_entity_fields(attrs):
     lines = []
     for attr in attrs:

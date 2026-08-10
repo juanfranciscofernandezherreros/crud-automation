@@ -21,6 +21,37 @@ python .\generate_crud.py Producto "id:int, nombre:string, precio:float"
 
 El comando crea el proyecto en `crud-producto/`.
 
+## Arquitectura
+
+Cuando se ejecuta desde una terminal interactiva, el generador pregunta qué
+arquitectura debe utilizar:
+
+```text
+Arquitectura:
+  1. layered
+  2. hexagonal
+  3. clean
+Selecciona una opción [1]:
+```
+
+También puede indicarse explícitamente, lo que evita preguntas en scripts y CI:
+
+```powershell
+python .\generate_crud.py Producto `
+  "id:int, nombre:string:not_blank" `
+  --architecture hexagonal
+```
+
+| Arquitectura | Organización principal |
+| --- | --- |
+| `layered` | Controller, service, repository y entity |
+| `hexagonal` | Dominio, puertos de entrada/salida y adaptadores |
+| `clean` | Entidades, casos de uso, gateways, interface adapters y frameworks |
+
+`layered` conserva el directorio `crud-<entidad>/`. Las otras opciones generan
+`crud-<entidad>-hexagonal/` o `crud-<entidad>-clean/` para evitar sobrescribir
+proyectos de arquitecturas diferentes.
+
 La definición de campos usa el formato `nombre:tipo`, separando los campos
 con comas. Debe existir exactamente un campo llamado `id` y los nombres de
 atributo deben escribirse en `lower_snake_case`.
@@ -76,9 +107,10 @@ python .\generate_crud.py OperacionFinanciera `
   "unidades:int:required:positive:min=1:max=10000, " `
   "tasa:float:positive:max=100, activa:boolean:required, " `
   "fecha_valor:date:required, procesado_en:datetime:required, " `
-  "creado_en:datetime, actualizado_en:datetime"
+  "creado_en:datetime, actualizado_en:datetime" `
+  --architecture clean
 
-mvn -f .\crud-operacionfinanciera\pom.xml verify
+mvn -f .\crud-operacionfinanciera-clean\pom.xml verify
 ```
 
 El proyecto resultante incluye validaciones distintas para creación,

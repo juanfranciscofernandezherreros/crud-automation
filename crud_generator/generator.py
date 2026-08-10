@@ -1,5 +1,6 @@
 """Orquestación de la generación de un proyecto CRUD."""
 
+from .architectures import PORTS_ARCHITECTURES, normalize_architecture
 from .fields import (
     generate_dto_fields,
     generate_entity_fields,
@@ -13,8 +14,19 @@ from . import templates
 from .writer import write_file
 
 
-def generate_project(entity_name, attrs_str):
+def generate_project(entity_name, attrs_str, architecture="layered"):
     entity_name = normalize_entity_name(entity_name)
+    architecture = normalize_architecture(architecture)
+    if architecture in PORTS_ARCHITECTURES:
+        from .ports_generator import generate_ports_project
+
+        return generate_ports_project(
+            entity_name, attrs_str, PORTS_ARCHITECTURES[architecture]
+        )
+    return generate_layered_project(entity_name, attrs_str)
+
+
+def generate_layered_project(entity_name, attrs_str):
     entity_lower = entity_name.lower()
     attrs = parse_attributes(attrs_str)
     base_dir = f"crud-{entity_lower}"
