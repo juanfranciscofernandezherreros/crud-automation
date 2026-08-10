@@ -6,6 +6,7 @@ from .fields import (
     generate_entity_fields,
     generate_invalid_test_dto_assignments,
     generate_sql_fields,
+    generate_sql_indexes,
     generate_test_dto_assignments,
     has_required_input,
 )
@@ -48,13 +49,29 @@ def generate_layered_project(entity_name, attrs_str):
     )
     write_file(
         f"{res_base}/db/migration/V1__Create_Table_{entity_name}.sql",
-        templates.get_sql_migration(entity_lower, sql_fields),
+        templates.get_sql_migration(
+            entity_lower,
+            sql_fields,
+            generate_sql_indexes(attrs, f"{entity_lower}s"),
+        ),
     )
 
     write_file(f"{java_base}/CrudApplication.java", templates.APP_MAIN)
     write_file(
         f"{java_base}/configuration/JpaAuditingConfiguration.java",
         templates.AUDITING_CONFIG,
+    )
+    write_file(
+        f"{java_base}/configuration/SecurityConfiguration.java",
+        templates.SECURITY_CONFIG,
+    )
+    write_file(
+        f"{java_base}/configuration/RateLimitFilter.java",
+        templates.RATE_LIMIT_FILTER,
+    )
+    write_file(
+        f"{java_base}/configuration/IdempotencyService.java",
+        templates.IDEMPOTENCY_SERVICE,
     )
     write_file(
         f"{java_base}/exception/GlobalExceptionHandler.java",
@@ -92,7 +109,7 @@ def generate_layered_project(entity_name, attrs_str):
                 attrs, ignore_id=True, ignore_audit=True, validation_mode="patch"
             ),
         ),
-        ("ResponseDTO", generate_dto_fields(attrs)),
+        ("ResponseDTO", f"{generate_dto_fields(attrs)}\n    private Long version;"),
     ]
     for suffix, fields in dto_definitions:
         class_name = f"{entity_name}{suffix}"
@@ -127,6 +144,10 @@ def generate_layered_project(entity_name, attrs_str):
             has_required_input(attrs),
             generate_invalid_test_dto_assignments(attrs),
         ),
+    )
+    write_file(
+        f"{test_base}/integration/PostgreSQLIntegrationTest.java",
+        templates.get_postgres_integration_test(entity_lower),
     )
 
     return base_dir

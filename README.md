@@ -1,68 +1,55 @@
 # Generador de CRUD Spring Boot
 
-Automatización en Python que genera la estructura completa de un CRUD con
-Spring Boot, PostgreSQL, Flyway, MapStruct, Docker y pruebas.
-
-Este repositorio contiene únicamente el generador. Los proyectos `crud-*`
-creados al ejecutarlo son artefactos de salida y no forman parte del código
-fuente versionado.
+Automatizacion en Python que genera un CRUD con Spring Boot, PostgreSQL,
+Flyway, MapStruct, Docker, seguridad, observabilidad y pruebas reales con
+Testcontainers. El repositorio conserva solo el generador; `crud-*` son salidas
+recreables y estan excluidas de Git.
 
 ## Requisitos
 
-- Python 3.10 o superior.
-- No requiere dependencias externas de Python.
-- Java 21 y Maven 3.9 para compilar y probar los proyectos generados.
+- Python 3.10 o superior, sin dependencias externas.
+- Java 21 y Maven 3.9 para compilar los proyectos generados.
+- Docker para ejecutar las pruebas PostgreSQL de Testcontainers.
 
 ## Uso
 
 ```powershell
-python .\generate_crud.py Producto "id:int, nombre:string, precio:float"
+python .\generate_crud.py Producto `
+  "id:int, nombre:string:not_blank:max=120:index, precio:decimal:required:positive"
 ```
 
-El comando crea el proyecto en `crud-producto/`.
-
-## Arquitectura
-
-Cuando se ejecuta desde una terminal interactiva, el generador pregunta qué
-arquitectura debe utilizar:
+Sin `--architecture`, una terminal interactiva pregunta la arquitectura:
 
 ```text
 Arquitectura:
   1. layered
   2. hexagonal
   3. clean
-Selecciona una opción [1]:
+Selecciona una opcion [1]:
 ```
 
-También puede indicarse explícitamente, lo que evita preguntas en scripts y CI:
+Para scripts y CI se indica explicitamente:
 
 ```powershell
 python .\generate_crud.py Producto `
-  "id:int, nombre:string:not_blank" `
+  "id:int, nombre:string:not_blank, precio:decimal:required:positive" `
   --architecture hexagonal
 ```
 
-| Arquitectura | Organización principal |
-| --- | --- |
-| `layered` | Controller, service, repository y entity |
-| `hexagonal` | Dominio, puertos de entrada/salida y adaptadores |
-| `clean` | Entidades, casos de uso, gateways, interface adapters y frameworks |
+| Arquitectura | Organizacion principal | Directorio |
+| --- | --- | --- |
+| `layered` | Controller, service, repository y entity | `crud-producto/` |
+| `hexagonal` | Dominio, puertos y adaptadores | `crud-producto-hexagonal/` |
+| `clean` | Entidades, casos de uso, gateways, adapters y frameworks | `crud-producto-clean/` |
 
-`layered` conserva el directorio `crud-<entidad>/`. Las otras opciones generan
-`crud-<entidad>-hexagonal/` o `crud-<entidad>-clean/` para evitar sobrescribir
-proyectos de arquitecturas diferentes.
+En hexagonal y clean, el servicio de aplicacion es Java puro: no contiene
+anotaciones ni tipos de Spring. Las transacciones quedan en el adaptador de
+persistencia y el wiring en `UseCaseConfiguration`.
 
-La definición de campos usa el formato `nombre:tipo`, separando los campos
-con comas. Debe existir exactamente un campo llamado `id` y los nombres de
-atributo deben escribirse en `lower_snake_case`.
+## Campos y reglas
 
-Las validaciones se añaden después del tipo, separadas por `:`:
-
-```powershell
-python .\generate_crud.py Producto "id:int, nombre:string:not_blank:max=120, precio:double:required:positive"
-```
-
-Tipos admitidos:
+El formato es `nombre:tipo[:regla]`, con campos separados por comas. Debe
+existir un `id` y los nombres deben usar `lower_snake_case`.
 
 | Tipo | Java | PostgreSQL |
 | --- | --- | --- |
@@ -70,40 +57,37 @@ Tipos admitidos:
 | `string` | `String` | `VARCHAR(255)` |
 | `float` | `Float` | `DECIMAL(10, 2)` |
 | `double` | `Double` | `DECIMAL(19, 4)` |
+| `decimal` | `BigDecimal` | `DECIMAL(19, 4)` |
 | `boolean` | `Boolean` | `BOOLEAN` |
 | `datetime` | `LocalDateTime` | `TIMESTAMP` |
 | `date` | `LocalDate` | `DATE` |
 
-Validaciones admitidas:
+Para dinero usa siempre `decimal`. `float` y `double` se mantienen para
+magnitudes no monetarias y compatibilidad.
 
-| Regla | Tipos | Anotación generada |
+| Regla | Tipos | Java y Flyway |
 | --- | --- | --- |
-| `required` | Todos | `@NotNull` |
-| `not_blank` | `string` | `@NotBlank` |
-| `positive` | `int`, `float`, `double` | `@Positive` |
-| `min=N` | `string` y numéricos | `@Size(min=N)` o `@DecimalMin` |
-| `max=N` | `string` y numéricos | `@Size(max=N)` o `@DecimalMax` |
+| `required` | Todos | `@NotNull` y `NOT NULL` |
+| `not_blank` | `string` | `@NotBlank`, `NOT NULL` y `CHECK` |
+| `positive` | Numericos | `@Positive` y `CHECK (> 0)` |
+| `min=N` | String y numericos | `@Size`/`@DecimalMin` y `CHECK` |
+| `max=N` | String y numericos | `@Size`/`@DecimalMax`, longitud SQL y `CHECK` |
+| `unique` | Todos | Restriccion `UNIQUE` |
+| `index` | Todos | Indice PostgreSQL |
 
+Un campo `unique` ya tiene el indice implicito de PostgreSQL, por lo que el
+generador no crea un segundo indice aunque se indiquen ambas reglas.
 `CreateDTO` y `UpdateDTO` aplican las reglas obligatorias. `PatchDTO` permite
-omitir cualquier campo, pero valida los valores que sí se envían. Los campos
-de auditoría se gestionan internamente y no aparecen en los DTO de entrada.
-
-Ejemplo con auditoría:
-
-```powershell
-python .\generate_crud.py Pedido "id:int, numero:string:not_blank:max=40, creado_en:datetime, actualizado_en:datetime"
-```
+omitir campos, pero valida los valores presentes. Los campos `creado_en`,
+`created_at`, `actualizado_en` y `updated_at` se gestionan internamente.
 
 ## Ejemplo avanzado
 
-Este ejemplo combina todos los tipos, reglas obligatorias, límites de texto y
-numéricos, fechas de negocio y campos de auditoría:
-
 ```powershell
 python .\generate_crud.py OperacionFinanciera `
-  "id:int, referencia:string:not_blank:min=8:max=64, " `
-  "descripcion:string:required:max=255, " `
-  "importe:double:required:positive:min=0.01:max=999999.99, " `
+  "id:int, referencia:string:not_blank:min=8:max=64:unique, " `
+  "descripcion:string:required:max=255:index, " `
+  "importe:decimal:required:positive:min=0.01:max=999999.99, " `
   "unidades:int:required:positive:min=1:max=10000, " `
   "tasa:float:positive:max=100, activa:boolean:required, " `
   "fecha_valor:date:required, procesado_en:datetime:required, " `
@@ -113,71 +97,88 @@ python .\generate_crud.py OperacionFinanciera `
 mvn -f .\crud-operacionfinanciera-clean\pom.xml verify
 ```
 
-El proyecto resultante incluye validaciones distintas para creación,
-actualización completa y parche parcial, pruebas HTTP de entradas válidas e
-inválidas, migración Flyway, Docker y un JAR ejecutable.
+## Produccion
 
-## Validación
+- Los listados estan paginados: 20 elementos por defecto y 100 como maximo.
+  Hexagonal y clean usan `PageQuery` y `PageResult` propios en el dominio.
+- Entidades y modelos incluyen `version`; JPA usa `@Version` para concurrencia
+  optimista y Flyway crea la columna correspondiente.
+- `POST` exige `Idempotency-Key`. PostgreSQL bloquea concurrentemente la clave
+  y guarda el identificador resultante en `idempotency_keys`.
+- HTTP Basic permite lectura a `USER` y `ADMIN`, y escritura solo a `ADMIN`.
+  La aplicacion es stateless.
+- Actuator requiere `ADMIN`, salvo el resumen de `/actuator/health`. Se exponen
+  health, info y Prometheus, sin detalles completos para usuarios anonimos.
+- Un filtro limita peticiones por minuto e IP.
+- Micrometer incluye `traceId` y `spanId` en logs y exporta trazas mediante OTLP.
+- No existen usuarios ni contrasenas predeterminados.
 
-El generador detiene la ejecución antes de escribir archivos cuando encuentra:
+Variables minimas para arrancar:
 
-- Una entidad con un nombre no válido.
-- Atributos sin el formato `nombre:tipo`.
-- Nombres que no siguen `lower_snake_case`.
-- Atributos duplicados.
-- Tipos desconocidos.
-- Validaciones desconocidas o incompatibles con el tipo.
-- Límites no numéricos, negativos para strings o con `min` mayor que `max`.
-- Una definición sin el campo `id`.
+```powershell
+$env:SPRING_DATASOURCE_USERNAME = "app_user"
+$env:SPRING_DATASOURCE_PASSWORD = "una-clave-segura"
+$env:APP_SECURITY_USER = "admin"
+$env:APP_SECURITY_PASSWORD = "otra-clave-segura"
+$env:RATE_LIMIT_PER_MINUTE = "120"
+$env:OTEL_EXPORTER_OTLP_ENDPOINT = "http://localhost:4318/v1/traces"
+```
 
-Los errores de uso devuelven código de salida `1` y las definiciones inválidas
-devuelven código `2`.
+Alta idempotente:
+
+```powershell
+curl.exe -u admin:otra-clave-segura `
+  -H "Content-Type: application/json" `
+  -H "Idempotency-Key: operacion-2026-0001" `
+  -d '{"referencia":"REF-00001","importe":10.50}' `
+  http://localhost:8080/api/operacionfinancieras
+```
+
+`docker-compose.yml` tambien obliga a definir `POSTGRES_USER`,
+`POSTGRES_PASSWORD`, `APP_SECURITY_USER` y `APP_SECURITY_PASSWORD` antes de
+ejecutar `docker compose up`.
+
+## Validacion
+
+El generador falla antes de escribir cuando encuentra nombres invalidos,
+atributos duplicados, tipos o reglas desconocidos, reglas incompatibles,
+limites incoherentes o ausencia de `id`. Los errores de uso devuelven codigo 1
+y las definiciones invalidas codigo 2.
+
+```powershell
+python -m pytest -q
+```
+
+La aceptacion genera proyectos layered, hexagonal y clean en directorios
+temporales y ejecuta `mvn verify` en cada uno. Cada proyecto incluye tests
+unitarios y MVC, mas un `@SpringBootTest` con PostgreSQL 16 real que valida
+Flyway, seguridad e idempotencia. Testcontainers lo ejecuta cuando Docker esta
+disponible y lo omite explicitamente cuando no lo esta. Si Maven no esta
+instalado, se omite la aceptacion Java.
+
+La cache Maven de aceptacion se guarda en `.m2/repository` dentro del workspace.
+Se puede cambiar con `CRUD_GENERATOR_MAVEN_REPO`.
 
 ## Estructura
 
 ```text
 generate_crud.py          Punto de entrada compatible
 crud_generator/
-  cli.py                  Interfaz de línea de comandos
-  generator.py            Orquestación de la generación
-  parsing.py              Análisis y validación de entradas
-  fields.py               Construcción de campos Java, DTO y SQL
-  templates.py            Plantillas de archivos generados
+  cli.py                  Interfaz de linea de comandos
+  architectures.py        Definicion de layouts
+  generator.py            Generacion layered
+  ports_generator.py      Generacion hexagonal y clean
+  parsing.py              Analisis y validacion de entradas
+  fields.py               Campos Java, DTO y SQL
+  templates.py            Plantillas compartidas y layered
+  ports_templates.py      Plantillas de puertos y adaptadores
   types.py                Mapeos de tipos
   writer.py               Escritura en disco
-tests/                    Pruebas de la automatización Python
+tests/                    Pruebas de la automatizacion
 ```
 
-## Pruebas
-
-```powershell
-python -m unittest discover -s tests -v
-```
-
-Las pruebas unitarias validan las entradas y el comportamiento del CLI. La
-suite de aceptación genera varios proyectos en directorios temporales y ejecuta
-`mvn verify` para comprobar que el código Java compila, sus tests Spring pasan y
-el JAR final se construye correctamente. Si Maven no está instalado, esa prueba
-se omite.
-
-También puedes comprobar manualmente un proyecto recién generado:
-
-```powershell
-mvn -f .\crud-producto\pom.xml verify
-```
-
-## Salida
-
-Cada ejecución genera un directorio `crud-<entidad>/` con el proyecto Spring
-Boot. Estos directorios están excluidos por `.gitignore`; pueden borrarse y
-regenerarse en cualquier momento. El repositorio conserva únicamente el
-generador Python, sus pruebas y la documentación.
-
-Para eliminar todos los proyectos generados localmente:
+Los proyectos generados pueden borrarse y regenerarse en cualquier momento:
 
 ```powershell
 Get-ChildItem -Directory -Filter "crud-*" | Remove-Item -Recurse -Force
 ```
-
-La prueba de aceptación realiza esta limpieza automáticamente porque genera
-los proyectos en un directorio temporal.

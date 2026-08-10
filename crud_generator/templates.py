@@ -28,6 +28,10 @@ def get_pom_xml(entity_lower):
         <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-data-jpa</artifactId></dependency>
         <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-validation</artifactId></dependency>
         <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-actuator</artifactId></dependency>
+        <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-security</artifactId></dependency>
+        <dependency><groupId>io.micrometer</groupId><artifactId>micrometer-registry-prometheus</artifactId><scope>runtime</scope></dependency>
+        <dependency><groupId>io.micrometer</groupId><artifactId>micrometer-tracing-bridge-otel</artifactId></dependency>
+        <dependency><groupId>io.opentelemetry</groupId><artifactId>opentelemetry-exporter-otlp</artifactId></dependency>
 
         <!-- Flyway con versión explícita hardcodeada para evitar errores en el POM -->
         <dependency>
@@ -46,6 +50,9 @@ def get_pom_xml(entity_lower):
         <dependency><groupId>org.mapstruct</groupId><artifactId>mapstruct</artifactId><version>${{org.mapstruct.version}}</version></dependency>
         <dependency><groupId>org.springdoc</groupId><artifactId>springdoc-openapi-starter-webmvc-ui</artifactId><version>${{springdoc.version}}</version></dependency>
         <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-test</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.springframework.security</groupId><artifactId>spring-security-test</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.testcontainers</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.testcontainers</groupId><artifactId>postgresql</artifactId><scope>test</scope></dependency>
     </dependencies>
 
     <build>
@@ -101,25 +108,28 @@ services:
       - "8080:8080"
     environment:
       - SPRING_DATASOURCE_URL=jdbc:postgresql://db:5432/{entity_lower}_db
-      - SPRING_DATASOURCE_USERNAME=postgres
-      - SPRING_DATASOURCE_PASSWORD=postgres
+      - SPRING_DATASOURCE_USERNAME=${{POSTGRES_USER:?Set POSTGRES_USER}}
+      - SPRING_DATASOURCE_PASSWORD=${{POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}}
       - SPRING_FLYWAY_URL=jdbc:postgresql://db:5432/{entity_lower}_db
-      - SPRING_FLYWAY_USER=postgres
-      - SPRING_FLYWAY_PASSWORD=postgres
+      - SPRING_FLYWAY_USER=${{POSTGRES_USER:?Set POSTGRES_USER}}
+      - SPRING_FLYWAY_PASSWORD=${{POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}}
+      - APP_SECURITY_USER=${{APP_SECURITY_USER:?Set APP_SECURITY_USER}}
+      - APP_SECURITY_PASSWORD=${{APP_SECURITY_PASSWORD:?Set APP_SECURITY_PASSWORD}}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${{OTEL_EXPORTER_OTLP_ENDPOINT:-http://host.docker.internal:4318/v1/traces}}
     depends_on:
       db:
         condition: service_healthy
 
   db:
-    image: postgres:15-alpine
+    image: postgres:16-alpine
     environment:
       - POSTGRES_DB={entity_lower}_db
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_USER=${{POSTGRES_USER:?Set POSTGRES_USER}}
+      - POSTGRES_PASSWORD=${{POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}}
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U $${{POSTGRES_USER}}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -133,13 +143,13 @@ spring:
     name: {entity_lower}-service
   datasource:
     url: ${{SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/{entity_lower}_db}}
-    username: ${{SPRING_DATASOURCE_USERNAME:postgres}}
-    password: ${{SPRING_DATASOURCE_PASSWORD:postgres}}
+    username: ${{SPRING_DATASOURCE_USERNAME}}
+    password: ${{SPRING_DATASOURCE_PASSWORD}}
     driver-class-name: org.postgresql.Driver
   jpa:
     hibernate:
       ddl-auto: validate
-    show-sql: true
+    show-sql: ${{JPA_SHOW_SQL:false}}
     properties:
       hibernate:
         format_sql: true
@@ -147,14 +157,34 @@ spring:
   flyway:
     enabled: true
     baseline-on-migrate: true
+  data:
+    web:
+      pageable:
+        default-page-size: 20
+        max-page-size: 100
 management:
   endpoints:
     web:
       exposure:
-        include: health, info, metrics
+        include: health, info, prometheus
   endpoint:
     health:
-      show-details: always
+      show-details: when_authorized
+  tracing:
+    sampling:
+      probability: ${{TRACING_SAMPLING_PROBABILITY:0.1}}
+  otlp:
+    tracing:
+      endpoint: ${{OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318/v1/traces}}
+app:
+  security:
+    user: ${{APP_SECURITY_USER}}
+    password: ${{APP_SECURITY_PASSWORD}}
+  rate-limit:
+    requests-per-minute: ${{RATE_LIMIT_PER_MINUTE:120}}
+logging:
+  pattern:
+    level: "%5p [traceId=%X{{traceId:-}},spanId=%X{{spanId:-}}]"
 springdoc:
   api-docs:
     path: /v3/api-docs
@@ -162,9 +192,18 @@ springdoc:
     path: /swagger-ui.html
 """
 
-def get_sql_migration(entity_lower, sql_fields):
+def get_sql_migration(entity_lower, sql_fields, sql_indexes=""):
+    indexes = f"\n{sql_indexes}\n" if sql_indexes else ""
     return f"""CREATE TABLE {entity_lower}s (
 {sql_fields}
+);
+{indexes}
+CREATE TABLE IF NOT EXISTS idempotency_keys (
+    idempotency_key VARCHAR(128) NOT NULL,
+    resource_type VARCHAR(100) NOT NULL,
+    resource_id INT NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (idempotency_key, resource_type)
 );
 """
 
@@ -179,6 +218,7 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.math.BigDecimal;
 
 @Entity
 @Table(name = "{entity_lower}s")
@@ -200,6 +240,7 @@ import jakarta.validation.constraints.*;
 import lombok.Data;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.math.BigDecimal;
 
 @Data
 public class {class_name} {{
@@ -333,6 +374,7 @@ def get_controller(entity_name, entity_lower):
     return f"""package com.example.crud.controller;
 
 import com.example.crud.dto.*;
+import com.example.crud.configuration.IdempotencyService;
 import com.example.crud.service.{entity_name}Service;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -352,11 +394,19 @@ import java.net.URI;
 public class {entity_name}Controller {{
 
     private final {entity_name}Service service;
+    private final IdempotencyService idempotencyService;
 
     @PostMapping
     @Operation(summary = "Crear {entity_lower}")
-    public ResponseEntity<{entity_name}ResponseDTO> create(@Valid @RequestBody {entity_name}CreateDTO dto) {{
-        {entity_name}ResponseDTO created = service.create(dto);
+    public ResponseEntity<{entity_name}ResponseDTO> create(
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @Valid @RequestBody {entity_name}CreateDTO dto) {{
+        {entity_name}ResponseDTO created = idempotencyService.execute(
+                idempotencyKey,
+                "{entity_name}",
+                () -> service.create(dto),
+                service::findById,
+                value -> value.getId());
         URI location = ServletUriComponentsBuilder.fromCurrentRequest().path("/{{id}}").buildAndExpand(created.getId()).toUri();
         return ResponseEntity.created(location).body(created);
     }}
@@ -417,6 +467,152 @@ public class JpaAuditingConfiguration {
 }
 """
 
+SECURITY_CONFIG = """package com.example.crud.configuration;
+
+import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.config.Customizer;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.core.userdetails.User;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.provisioning.InMemoryUserDetailsManager;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.config.http.SessionCreationPolicy;
+
+@Configuration
+@RequiredArgsConstructor
+public class SecurityConfiguration {
+    private final RateLimitFilter rateLimitFilter;
+
+    @Bean
+    SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+        return http
+                .csrf(csrf -> csrf.disable())
+                .sessionManagement(session -> session
+                        .sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .authorizeHttpRequests(auth -> auth
+                        .requestMatchers("/actuator/health", "/v3/api-docs/**", "/swagger-ui/**").permitAll()
+                        .requestMatchers("/actuator/**").hasRole("ADMIN")
+                        .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/**").hasAnyRole("USER", "ADMIN")
+                        .requestMatchers("/api/**").hasRole("ADMIN")
+                        .anyRequest().authenticated())
+                .httpBasic(Customizer.withDefaults())
+                .addFilterBefore(rateLimitFilter, UsernamePasswordAuthenticationFilter.class)
+                .build();
+    }
+
+    @Bean
+    PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
+
+    @Bean
+    UserDetailsService userDetailsService(
+            @Value("${app.security.user}") String username,
+            @Value("${app.security.password}") String password,
+            PasswordEncoder encoder) {
+        return new InMemoryUserDetailsManager(User.withUsername(username)
+                .password(encoder.encode(password)).roles("USER", "ADMIN").build());
+    }
+}
+"""
+
+RATE_LIMIT_FILTER = """package com.example.crud.configuration;
+
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Component;
+import org.springframework.web.filter.OncePerRequestFilter;
+import java.io.IOException;
+import java.time.Instant;
+import java.util.concurrent.ConcurrentHashMap;
+
+@Component
+public class RateLimitFilter extends OncePerRequestFilter {
+    private final ConcurrentHashMap<String, Window> windows = new ConcurrentHashMap<>();
+    private final int limit;
+
+    public RateLimitFilter(@Value("${app.rate-limit.requests-per-minute:120}") int limit) {
+        this.limit = limit;
+    }
+
+    @Override
+    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
+            FilterChain chain) throws ServletException, IOException {
+        long minute = Instant.now().getEpochSecond() / 60;
+        String key = request.getRemoteAddr();
+        Window window = windows.compute(key, (ignored, current) ->
+                current == null || current.minute != minute ? new Window(minute) : current);
+        if (!window.allow(limit)) {
+            response.setStatus(HttpStatus.TOO_MANY_REQUESTS.value());
+            response.setContentType("application/json");
+            response.getWriter().write("{\\\"message\\\":\\\"Rate limit exceeded\\\"}");
+            return;
+        }
+        chain.doFilter(request, response);
+    }
+
+    private static final class Window {
+        private final long minute;
+        private int requests;
+        private Window(long minute) { this.minute = minute; }
+        private synchronized boolean allow(int limit) { return ++requests <= limit; }
+    }
+}
+"""
+
+IDEMPOTENCY_SERVICE = """package com.example.crud.configuration;
+
+import lombok.RequiredArgsConstructor;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
+import java.util.List;
+import java.util.function.Function;
+import java.util.function.Supplier;
+import java.util.function.ToIntFunction;
+
+@Component
+@RequiredArgsConstructor
+public class IdempotencyService {
+    private final JdbcTemplate jdbcTemplate;
+
+    @Transactional
+    public <T> T execute(String key, String resourceType, Supplier<T> creator,
+            Function<Integer, T> loader, ToIntFunction<T> idExtractor) {
+        if (key == null || key.isBlank() || key.length() > 128) {
+            throw new IllegalArgumentException("Idempotency-Key debe tener entre 1 y 128 caracteres");
+        }
+        jdbcTemplate.query(
+                "SELECT pg_advisory_xact_lock(hashtext(?))",
+                rs -> null,
+                resourceType + ":" + key);
+        List<Integer> existing = jdbcTemplate.query(
+                "SELECT resource_id FROM idempotency_keys " +
+                        "WHERE idempotency_key=? AND resource_type=?",
+                (rs, row) -> rs.getInt(1), key, resourceType);
+        if (!existing.isEmpty()) {
+            return loader.apply(existing.get(0));
+        }
+        T created = creator.get();
+        jdbcTemplate.update(
+                "INSERT INTO idempotency_keys " +
+                        "(idempotency_key, resource_type, resource_id) VALUES (?, ?, ?)",
+                key, resourceType, idExtractor.applyAsInt(created));
+        return created;
+    }
+}
+"""
+
 EXCEPTION_HANDLER = """package com.example.crud.exception;
 
 import org.springframework.http.HttpStatus;
@@ -425,6 +621,8 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -441,6 +639,27 @@ public class GlobalExceptionHandler {
         error.put("error", HttpStatus.NOT_FOUND.getReasonPhrase());
         error.put("message", ex.getMessage());
         return new ResponseEntity<>(error, HttpStatus.NOT_FOUND);
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<Map<String, Object>> handleBadRequest(IllegalArgumentException ex) {
+        Map<String, Object> error = new HashMap<>();
+        error.put("timestamp", LocalDateTime.now());
+        error.put("status", HttpStatus.BAD_REQUEST.value());
+        error.put("error", HttpStatus.BAD_REQUEST.getReasonPhrase());
+        error.put("message", ex.getMessage());
+        return new ResponseEntity<>(error, HttpStatus.BAD_REQUEST);
+    }
+
+    @ExceptionHandler({ObjectOptimisticLockingFailureException.class,
+            DataIntegrityViolationException.class})
+    public ResponseEntity<Map<String, Object>> handleConflict(RuntimeException ex) {
+        Map<String, Object> error = new HashMap<>();
+        error.put("timestamp", LocalDateTime.now());
+        error.put("status", HttpStatus.CONFLICT.value());
+        error.put("error", HttpStatus.CONFLICT.getReasonPhrase());
+        error.put("message", "Conflicto de concurrencia o integridad");
+        return new ResponseEntity<>(error, HttpStatus.CONFLICT);
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -561,7 +780,8 @@ def get_controller_test(
     void create_MissingRequiredInput_Returns400() throws Exception {{
         {entity_name}CreateDTO createDTO = new {entity_name}CreateDTO();
 
-        mockMvc.perform(post("/api/{entity_lower}s")
+        mockMvc.perform(post("/api/{entity_lower}s").with(csrf())
+                .header("Idempotency-Key", "test-key")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(createDTO)))
                 .andExpect(status().isBadRequest());
@@ -578,7 +798,8 @@ def get_controller_test(
         {entity_name}CreateDTO createDTO = new {entity_name}CreateDTO();
 {invalid_assignments}
 
-        mockMvc.perform(post("/api/{entity_lower}s")
+        mockMvc.perform(post("/api/{entity_lower}s").with(csrf())
+                .header("Idempotency-Key", "test-key")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(createDTO)))
                 .andExpect(status().isBadRequest());
@@ -592,6 +813,7 @@ def get_controller_test(
 import com.example.crud.dto.{entity_name}CreateDTO;
 import com.example.crud.dto.{entity_name}PatchDTO;
 import com.example.crud.dto.{entity_name}ResponseDTO;
+import com.example.crud.configuration.IdempotencyService;
 import com.example.crud.service.{entity_name}Service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -601,17 +823,21 @@ import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.security.test.context.support.WithMockUser;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.math.BigDecimal;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 
 @WebMvcTest({entity_name}Controller.class)
+@WithMockUser(roles = "ADMIN")
 class {entity_name}ControllerTest {{
 
     @Autowired
@@ -619,6 +845,9 @@ class {entity_name}ControllerTest {{
 
     @MockBean
     private {entity_name}Service service;
+
+    @MockBean
+    private IdempotencyService idempotencyService;
 
     @Autowired
     private ObjectMapper objectMapper;
@@ -630,9 +859,11 @@ class {entity_name}ControllerTest {{
         {entity_name}ResponseDTO responseDTO = new {entity_name}ResponseDTO();
         responseDTO.setId(1);
 
-        Mockito.when(service.create(any({entity_name}CreateDTO.class))).thenReturn(responseDTO);
+        Mockito.when(idempotencyService.execute(any(), any(), any(), any(), any()))
+                .thenReturn(responseDTO);
 
-        mockMvc.perform(post("/api/{entity_lower}s")
+        mockMvc.perform(post("/api/{entity_lower}s").with(csrf())
+                .header("Idempotency-Key", "test-key")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(createDTO)))
                 .andExpect(status().isCreated())
@@ -647,7 +878,7 @@ class {entity_name}ControllerTest {{
         Mockito.when(service.patch(Mockito.eq(1), any({entity_name}PatchDTO.class)))
                 .thenReturn(responseDTO);
 
-        mockMvc.perform(patch("/api/{entity_lower}s/1")
+        mockMvc.perform(patch("/api/{entity_lower}s/1").with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{{}}"))
                 .andExpect(status().isOk());
@@ -662,6 +893,97 @@ class {entity_name}ControllerTest {{
         mockMvc.perform(get("/api/{entity_lower}s/1")
                 .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk());
+    }}
+}}
+"""
+
+
+def get_postgres_integration_test(entity_lower):
+    return f"""package com.example.crud.integration;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.test.web.servlet.MockMvc;
+import com.example.crud.configuration.IdempotencyService;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+@SpringBootTest
+@AutoConfigureMockMvc
+@Testcontainers(disabledWithoutDocker = true)
+class PostgreSQLIntegrationTest {{
+    @Container
+    static final PostgreSQLContainer<?> POSTGRES =
+            new PostgreSQLContainer<>("postgres:16-alpine");
+
+    @DynamicPropertySource
+    static void properties(DynamicPropertyRegistry registry) {{
+        registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
+        registry.add("spring.datasource.username", POSTGRES::getUsername);
+        registry.add("spring.datasource.password", POSTGRES::getPassword);
+        registry.add("spring.flyway.url", POSTGRES::getJdbcUrl);
+        registry.add("spring.flyway.user", POSTGRES::getUsername);
+        registry.add("spring.flyway.password", POSTGRES::getPassword);
+        registry.add("app.security.user", () -> "integration-admin");
+        registry.add("app.security.password", () -> "integration-password");
+    }}
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private IdempotencyService idempotencyService;
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @Test
+    void flywayCreatesTableAndVersionColumn() {{
+        Integer tables = jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM information_schema.tables " +
+                        "WHERE table_schema='public' AND table_name='{entity_lower}s'",
+                Integer.class);
+        Integer versions = jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM information_schema.columns " +
+                        "WHERE table_schema='public' AND table_name='{entity_lower}s' " +
+                        "AND column_name='version'",
+                Integer.class);
+        assertEquals(1, tables);
+        assertEquals(1, versions);
+    }}
+
+    @Test
+    void idempotencyKeyCreatesTheResourceOnlyOnce() {{
+        AtomicInteger creations = new AtomicInteger();
+        Integer first = idempotencyService.execute(
+                "integration-key", "integration-resource",
+                () -> {{ creations.incrementAndGet(); return 41; }},
+                id -> id, Integer::intValue);
+        Integer repeated = idempotencyService.execute(
+                "integration-key", "integration-resource",
+                () -> {{ creations.incrementAndGet(); return 99; }},
+                id -> id, Integer::intValue);
+
+        assertEquals(41, first);
+        assertEquals(41, repeated);
+        assertEquals(1, creations.get());
+    }}
+
+    @Test
+    void apiRejectsUnauthenticatedRequests() throws Exception {{
+        mockMvc.perform(get("/api/{entity_lower}s"))
+                .andExpect(status().isUnauthorized());
     }}
 }}
 """

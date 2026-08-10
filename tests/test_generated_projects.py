@@ -27,18 +27,18 @@ class GeneratedProjectAcceptanceTest(unittest.TestCase):
     PROJECTS = {
         "Pedido": (
             "layered",
-            "id:int, numero:string:not_blank:max=40, creado_en:datetime, "
+            "id:int, numero:string:not_blank:max=40:unique:index, creado_en:datetime, "
             "actualizado_en:datetime",
         ),
         "Producto": (
             "hexagonal",
             "id:int, nombre:string:not_blank:max=120, "
-            "precio:float:required:positive, activo:boolean:required",
+            "precio:decimal:required:positive, activo:boolean:required",
         ),
         "Cliente": (
             "clean",
             "id:int, nombre:string:not_blank:min=2:max=80, "
-            "nacimiento:date:required, saldo:double:positive",
+            "nacimiento:date:required, saldo:decimal:positive",
         ),
     }
 
@@ -54,13 +54,14 @@ class GeneratedProjectAcceptanceTest(unittest.TestCase):
                         project_directory = root / generate_project(
                             entity_name, attributes, architecture
                         )
-                        self._run_maven_tests(project_directory)
+                        self._run_maven_tests(project_directory, workspace)
 
-    def _run_maven_tests(self, project_directory):
+    def _run_maven_tests(self, project_directory, workspace):
         command = [MAVEN]
-        local_repository = os.environ.get("CRUD_GENERATOR_MAVEN_REPO")
-        if local_repository:
-            command.append(f"-Dmaven.repo.local={local_repository}")
+        local_repository = os.environ.get(
+            "CRUD_GENERATOR_MAVEN_REPO", str(workspace / ".m2" / "repository")
+        )
+        command.append(f"-Dmaven.repo.local={local_repository}")
         command.extend(["verify", "--quiet"])
 
         result = subprocess.run(

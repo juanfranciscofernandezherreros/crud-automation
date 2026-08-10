@@ -4,9 +4,11 @@ from decimal import Decimal, ROUND_CEILING
 
 
 def generate_plain_fields(attrs):
-    return "\n".join(
+    fields = [
         f"    private {attr['java_type']} {attr['camel_name']};" for attr in attrs
-    )
+    ]
+    fields.append("    private Long version;")
+    return "\n".join(fields)
 
 
 def generate_domain_update_statements(attrs, patch=False):
@@ -53,6 +55,7 @@ def generate_entity_fields(attrs):
                 f"    @Column(name = \"{attr['name']}\")\n"
                 f"    private {attr['java_type']} {attr['camel_name']};"
             )
+    lines.append("    @Version\n    private Long version;")
     return "\n\n".join(lines)
 
 
@@ -82,7 +85,7 @@ def generate_validation_annotations(attr, mode):
         if maximum is not None:
             arguments.append(f"max = {maximum}")
         annotations.append(f"    @Size({', '.join(arguments)})")
-    elif attr["type"] in {"int", "float", "double"}:
+    elif attr["type"] in {"int", "float", "double", "decimal"}:
         if minimum is not None:
             annotations.append(f'    @DecimalMin("{minimum}")')
         if maximum is not None:
@@ -167,11 +170,13 @@ def get_valid_test_value(attr):
         length = max(minimum, 1 if validations.get("not_blank") else 0)
         length = min(max(length, 1), maximum) if maximum > 0 else 0
         return f'"{"x" * length}"'
-    if type_name in {"int", "float", "double"}:
+    if type_name in {"int", "float", "double", "decimal"}:
         minimum = Decimal(validations.get("min", "0"))
         value = max(minimum, Decimal("1")) if validations.get("positive") else minimum
         if type_name == "int":
             return str(int(value.to_integral_value(rounding=ROUND_CEILING)))
+        if type_name == "decimal":
+            return f'new BigDecimal("{value}")'
         suffix = "f" if type_name == "float" else "d"
         return f"{value}{suffix}"
     if type_name == "boolean":
@@ -187,7 +192,12 @@ def get_invalid_test_value(attr):
     type_name = attr["type"]
     validations = attr["validations"]
     if validations.get("positive"):
-        return {"int": "-1", "float": "-1f", "double": "-1d"}[type_name]
+        return {
+            "int": "-1",
+            "float": "-1f",
+            "double": "-1d",
+            "decimal": 'new BigDecimal("-1")',
+        }[type_name]
     if validations.get("not_blank"):
         return '" "'
     if type_name == "string" and "min" in validations:
@@ -201,6 +211,8 @@ def get_invalid_test_value(attr):
         value = Decimal(validations["max"]) + 1
     if type_name == "int":
         return str(int(value.to_integral_value(rounding=ROUND_CEILING)))
+    if type_name == "decimal":
+        return f'new BigDecimal("{value}")'
     return f"{value}{'f' if type_name == 'float' else 'd'}"
 
 
@@ -209,11 +221,45 @@ def generate_sql_fields(attrs):
     for attr in attrs:
         if attr["is_id"]:
             lines.append(f"    {attr['name']} SERIAL PRIMARY KEY")
-        elif attr["name"] in ["creado_en", "created_at"]:
-            lines.append(
-                f"    {attr['name']} {attr['sql_type']} "
-                "NOT NULL DEFAULT CURRENT_TIMESTAMP"
+            continue
+
+        validations = attr["validations"]
+        sql_type = attr["sql_type"]
+        if attr["type"] == "string" and "max" in validations:
+            sql_type = f"VARCHAR({validations['max']})"
+        constraints = []
+        if attr["name"] in ["creado_en", "created_at"]:
+            constraints.extend(["NOT NULL", "DEFAULT CURRENT_TIMESTAMP"])
+        elif validations.get("required") or validations.get("not_blank"):
+            constraints.append("NOT NULL")
+        if validations.get("unique"):
+            constraints.append("UNIQUE")
+        checks = []
+        if validations.get("not_blank"):
+            checks.append(f"btrim({attr['name']}) <> ''")
+        if validations.get("positive"):
+            checks.append(f"{attr['name']} > 0")
+        if "min" in validations:
+            expression = (
+                f"char_length({attr['name']}) >= {validations['min']}"
+                if attr["type"] == "string"
+                else f"{attr['name']} >= {validations['min']}"
             )
-        else:
-            lines.append(f"    {attr['name']} {attr['sql_type']}")
+            checks.append(expression)
+        if "max" in validations and attr["type"] != "string":
+            checks.append(f"{attr['name']} <= {validations['max']}")
+        constraints.extend(f"CHECK ({check})" for check in checks)
+        suffix = f" {' '.join(constraints)}" if constraints else ""
+        lines.append(f"    {attr['name']} {sql_type}{suffix}")
+    lines.append("    version BIGINT NOT NULL DEFAULT 0")
     return ",\n".join(lines)
+
+
+def generate_sql_indexes(attrs, table_name):
+    return "\n".join(
+        f"CREATE INDEX idx_{table_name}_{attr['name']} "
+        f"ON {table_name} ({attr['name']});"
+        for attr in attrs
+        if attr["validations"].get("index")
+        and not attr["validations"].get("unique")
+    )

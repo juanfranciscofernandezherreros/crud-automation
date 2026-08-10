@@ -8,7 +8,7 @@ from .types import JAVA_TYPES, SQL_TYPES
 
 ATTRIBUTE_NAME_PATTERN = re.compile(r"^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$")
 ENTITY_NAME_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9]*$")
-NUMERIC_TYPES = {"int", "float", "double"}
+NUMERIC_TYPES = {"int", "float", "double", "decimal"}
 AUDIT_FIELD_NAMES = {"creado_en", "created_at", "actualizado_en", "updated_at"}
 
 
@@ -71,7 +71,7 @@ def parse_validations(raw_validations, name, type_name):
             validations[rule] = value
             continue
 
-        if validation not in {"required", "not_blank", "positive"}:
+        if validation not in {"required", "not_blank", "positive", "unique", "index"}:
             raise DefinitionError(f"Validación desconocida: '{validation}'.")
         if validation in validations:
             raise DefinitionError(

@@ -8,6 +8,7 @@ from .fields import (
     generate_invalid_test_dto_assignments,
     generate_plain_fields,
     generate_sql_fields,
+    generate_sql_indexes,
     generate_test_dto_assignments,
     has_required_input,
 )
@@ -42,7 +43,11 @@ def generate_ports_project(entity_name, attrs_str, layout):
     )
     write_file(
         f"{resources}/db/migration/V1__Create_Table_{entity_name}.sql",
-        templates.get_sql_migration(entity_lower, generate_sql_fields(attrs)),
+        templates.get_sql_migration(
+            entity_lower,
+            generate_sql_fields(attrs),
+            generate_sql_indexes(attrs, f"{entity_lower}s"),
+        ),
     )
     write_file(
         java_path(main_java, "com.example.crud", "CrudApplication.java"),
@@ -56,12 +61,52 @@ def generate_ports_project(entity_name, attrs_str, layout):
         ),
         templates.AUDITING_CONFIG,
     )
+    write_file(
+        java_path(
+            main_java,
+            "com.example.crud.configuration",
+            "SecurityConfiguration.java",
+        ),
+        templates.SECURITY_CONFIG,
+    )
+    write_file(
+        java_path(
+            main_java,
+            "com.example.crud.configuration",
+            "RateLimitFilter.java",
+        ),
+        templates.RATE_LIMIT_FILTER,
+    )
+    write_file(
+        java_path(
+            main_java,
+            "com.example.crud.configuration",
+            "IdempotencyService.java",
+        ),
+        templates.IDEMPOTENCY_SERVICE,
+    )
 
     write_file(
         java_path(main_java, layout.domain_package, f"{entity_name}.java"),
         ports_templates.get_domain(
             entity_name, layout.domain_package, generate_plain_fields(attrs)
         ),
+    )
+    write_file(
+        java_path(main_java, layout.domain_package, "PageQuery.java"),
+        ports_templates.get_page_query(layout.domain_package),
+    )
+    write_file(
+        java_path(main_java, layout.domain_package, "PageResult.java"),
+        ports_templates.get_page_result(layout.domain_package),
+    )
+    write_file(
+        java_path(
+            main_java,
+            "com.example.crud.configuration",
+            "UseCaseConfiguration.java",
+        ),
+        ports_templates.get_use_case_configuration(entity_name, layout),
     )
     write_file(
         java_path(
@@ -106,7 +151,7 @@ def generate_ports_project(entity_name, attrs_str, layout):
                 attrs, ignore_id=True, ignore_audit=True, validation_mode="patch"
             ),
         ),
-        ("ResponseDTO", generate_dto_fields(attrs)),
+        ("ResponseDTO", f"{generate_dto_fields(attrs)}\n    private Long version;"),
     ]
     for suffix, fields in dto_definitions:
         class_name = f"{entity_name}{suffix}"
@@ -157,5 +202,13 @@ def generate_ports_project(entity_name, attrs_str, layout):
             has_required_input(attrs),
             generate_invalid_test_dto_assignments(attrs),
         ),
+    )
+    write_file(
+        java_path(
+            test_java,
+            "com.example.crud.integration",
+            "PostgreSQLIntegrationTest.java",
+        ),
+        templates.get_postgres_integration_test(entity_lower),
     )
     return base_dir

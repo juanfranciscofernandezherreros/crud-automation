@@ -11,7 +11,8 @@ from crud_generator.generator import generate_project
 class ParseAttributesTest(unittest.TestCase):
     def test_parses_valid_definition(self):
         attributes = parse_attributes(
-            "id:int, created_at:datetime, name:string:not_blank:max=120"
+            "id:int, created_at:datetime, "
+            "name:string:not_blank:max=120:unique:index"
         )
 
         self.assertEqual("createdAt", attributes[1]["camel_name"])
@@ -19,6 +20,8 @@ class ParseAttributesTest(unittest.TestCase):
         self.assertEqual("VARCHAR(255)", attributes[2]["sql_type"])
         self.assertTrue(attributes[2]["validations"]["not_blank"])
         self.assertEqual("120", attributes[2]["validations"]["max"])
+        self.assertTrue(attributes[2]["validations"]["unique"])
+        self.assertTrue(attributes[2]["validations"]["index"])
 
     def test_rejects_malformed_attribute(self):
         with self.assertRaisesRegex(DefinitionError, "nombre:tipo"):
@@ -46,7 +49,13 @@ class ParseAttributesTest(unittest.TestCase):
 
     def test_rejects_unknown_validation(self):
         with self.assertRaisesRegex(DefinitionError, "Validación desconocida"):
-            parse_attributes("id:int, nombre:string:unique")
+            parse_attributes("id:int, nombre:string:encrypted")
+
+    def test_parses_decimal_as_big_decimal(self):
+        attributes = parse_attributes("id:int, importe:decimal:required:positive")
+
+        self.assertEqual("BigDecimal", attributes[1]["java_type"])
+        self.assertEqual("DECIMAL(19, 4)", attributes[1]["sql_type"])
 
     def test_rejects_incoherent_limits(self):
         with self.assertRaisesRegex(DefinitionError, "no puede superar"):

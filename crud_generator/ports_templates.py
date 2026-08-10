@@ -7,6 +7,7 @@ def get_domain(entity_name, package, fields):
 import lombok.*;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.math.BigDecimal;
 
 @Data
 @NoArgsConstructor
@@ -14,6 +15,56 @@ import java.time.LocalDateTime;
 @Builder
 public class {entity_name} {{
 {fields}
+}}
+"""
+
+
+def get_page_query(package):
+    return f"""package {package};
+
+public record PageQuery(int page, int size, String sort) {{
+    public PageQuery {{
+        if (page < 0) throw new IllegalArgumentException("page no puede ser negativo");
+        if (size < 1 || size > 100) throw new IllegalArgumentException("size debe estar entre 1 y 100");
+        if (sort == null || !sort.matches("[A-Za-z][A-Za-z0-9]*")) {{
+            throw new IllegalArgumentException("sort no es válido");
+        }}
+    }}
+}}
+"""
+
+
+def get_page_result(package):
+    return f"""package {package};
+
+import java.util.List;
+
+public record PageResult<T>(
+        List<T> content,
+        long totalElements,
+        int totalPages,
+        int page,
+        int size) {{
+}}
+"""
+
+
+def get_use_case_configuration(entity_name, layout):
+    return f"""package com.example.crud.configuration;
+
+import {layout.input_package}.{entity_name}UseCase;
+import {layout.output_package}.{entity_name}PersistencePort;
+import {layout.service_package}.{entity_name}Service;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration
+public class UseCaseConfiguration {{
+    @Bean
+    {entity_name}UseCase {entity_name[0].lower() + entity_name[1:]}UseCase(
+            {entity_name}PersistencePort persistencePort) {{
+        return new {entity_name}Service(persistencePort);
+    }}
 }}
 """
 
@@ -28,6 +79,7 @@ import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.math.BigDecimal;
 
 @Entity
 @Table(name = "{entity_lower}s")
@@ -50,6 +102,7 @@ import jakarta.validation.constraints.*;
 import lombok.Data;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.math.BigDecimal;
 
 @Data
 public class {class_name} {{
@@ -62,11 +115,12 @@ def get_input_port(entity_name, layout):
     return f"""package {layout.input_package};
 
 import {layout.domain_package}.{entity_name};
-import java.util.List;
+import {layout.domain_package}.PageQuery;
+import {layout.domain_package}.PageResult;
 
 public interface {entity_name}UseCase {{
     {entity_name} create({entity_name} entity);
-    List<{entity_name}> findAll();
+    PageResult<{entity_name}> findAll(PageQuery query);
     {entity_name} findById(Integer id);
     {entity_name} update(Integer id, {entity_name} replacement);
     {entity_name} patch(Integer id, {entity_name} changes);
@@ -79,12 +133,13 @@ def get_output_port(entity_name, layout):
     return f"""package {layout.output_package};
 
 import {layout.domain_package}.{entity_name};
-import java.util.List;
+import {layout.domain_package}.PageQuery;
+import {layout.domain_package}.PageResult;
 import java.util.Optional;
 
 public interface {entity_name}PersistencePort {{
     {entity_name} save({entity_name} entity);
-    List<{entity_name}> findAll();
+    PageResult<{entity_name}> findAll(PageQuery query);
     Optional<{entity_name}> findById(Integer id);
     void delete({entity_name} entity);
 }}
@@ -98,37 +153,33 @@ import {layout.domain_package}.{entity_name};
 import {layout.input_package}.{entity_name}UseCase;
 import {layout.output_package}.{entity_name}PersistencePort;
 import {layout.exception_package}.ResourceNotFoundException;
-import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-import java.util.List;
+import {layout.domain_package}.PageQuery;
+import {layout.domain_package}.PageResult;
 
-@Service
-@RequiredArgsConstructor
 public class {entity_name}Service implements {entity_name}UseCase {{
 
     private final {entity_name}PersistencePort persistencePort;
 
+    public {entity_name}Service({entity_name}PersistencePort persistencePort) {{
+        this.persistencePort = persistencePort;
+    }}
+
     @Override
-    @Transactional
     public {entity_name} create({entity_name} entity) {{
         return persistencePort.save(entity);
     }}
 
     @Override
-    @Transactional(readOnly = true)
-    public List<{entity_name}> findAll() {{
-        return persistencePort.findAll();
+    public PageResult<{entity_name}> findAll(PageQuery query) {{
+        return persistencePort.findAll(query);
     }}
 
     @Override
-    @Transactional(readOnly = true)
     public {entity_name} findById(Integer id) {{
         return getEntity(id);
     }}
 
     @Override
-    @Transactional
     public {entity_name} update(Integer id, {entity_name} replacement) {{
         {entity_name} current = getEntity(id);
 {update_statements}
@@ -136,7 +187,6 @@ public class {entity_name}Service implements {entity_name}UseCase {{
     }}
 
     @Override
-    @Transactional
     public {entity_name} patch(Integer id, {entity_name} changes) {{
         {entity_name} current = getEntity(id);
 {patch_statements}
@@ -144,7 +194,6 @@ public class {entity_name}Service implements {entity_name}UseCase {{
     }}
 
     @Override
-    @Transactional
     public void delete(Integer id) {{
         persistencePort.delete(getEntity(id));
     }}
@@ -206,11 +255,17 @@ import {layout.domain_package}.{entity_name};
 import {layout.output_package}.{entity_name}PersistencePort;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
-import java.util.List;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+import org.springframework.transaction.annotation.Transactional;
+import {layout.domain_package}.PageQuery;
+import {layout.domain_package}.PageResult;
 import java.util.Optional;
 
 @Component
 @RequiredArgsConstructor
+@Transactional
 public class {entity_name}PersistenceAdapter implements {entity_name}PersistencePort {{
 
     private final {entity_name}JpaRepository repository;
@@ -222,11 +277,17 @@ public class {entity_name}PersistenceAdapter implements {entity_name}Persistence
     }}
 
     @Override
-    public List<{entity_name}> findAll() {{
-        return repository.findAll().stream().map(mapper::toDomain).toList();
+    @Transactional(readOnly = true)
+    public PageResult<{entity_name}> findAll(PageQuery query) {{
+        Page<{entity_name}JpaEntity> page = repository.findAll(PageRequest.of(
+                query.page(), query.size(), Sort.by(query.sort()).ascending()));
+        return new PageResult<>(
+                page.getContent().stream().map(mapper::toDomain).toList(),
+                page.getTotalElements(), page.getTotalPages(), query.page(), query.size());
     }}
 
     @Override
+    @Transactional(readOnly = true)
     public Optional<{entity_name}> findById(Integer id) {{
         return repository.findById(id).map(mapper::toDomain);
     }}
@@ -243,9 +304,12 @@ def get_controller(entity_name, entity_lower, layout):
     return f"""package {layout.controller_package};
 
 import {layout.domain_package}.{entity_name};
+import {layout.domain_package}.PageQuery;
+import {layout.domain_package}.PageResult;
 import {layout.dto_package}.*;
 import {layout.input_package}.{entity_name}UseCase;
 import {layout.web_mapper_package}.{entity_name}WebMapper;
+import com.example.crud.configuration.IdempotencyService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -253,7 +317,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 import java.net.URI;
-import java.util.List;
 
 @RestController
 @RequestMapping("/api/{entity_lower}s")
@@ -263,11 +326,18 @@ public class {entity_name}Controller {{
 
     private final {entity_name}UseCase useCase;
     private final {entity_name}WebMapper mapper;
+    private final IdempotencyService idempotencyService;
 
     @PostMapping
     public ResponseEntity<{entity_name}ResponseDTO> create(
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
             @Valid @RequestBody {entity_name}CreateDTO dto) {{
-        {entity_name} created = useCase.create(mapper.toDomain(dto));
+        {entity_name} created = idempotencyService.execute(
+                idempotencyKey,
+                "{entity_name}",
+                () -> useCase.create(mapper.toDomain(dto)),
+                useCase::findById,
+                value -> value.getId());
         {entity_name}ResponseDTO response = mapper.toDto(created);
         URI location = ServletUriComponentsBuilder.fromCurrentRequest()
                 .path("/{{id}}").buildAndExpand(response.getId()).toUri();
@@ -275,8 +345,14 @@ public class {entity_name}Controller {{
     }}
 
     @GetMapping
-    public ResponseEntity<List<{entity_name}ResponseDTO>> findAll() {{
-        return ResponseEntity.ok(useCase.findAll().stream().map(mapper::toDto).toList());
+    public ResponseEntity<PageResult<{entity_name}ResponseDTO>> findAll(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(defaultValue = "id") String sort) {{
+        PageResult<{entity_name}> result = useCase.findAll(new PageQuery(page, size, sort));
+        return ResponseEntity.ok(new PageResult<>(
+                result.content().stream().map(mapper::toDto).toList(),
+                result.totalElements(), result.totalPages(), result.page(), result.size()));
     }}
 
     @GetMapping("/{{id}}")
@@ -325,6 +401,8 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
@@ -342,6 +420,18 @@ public class GlobalExceptionHandler {{
         ex.getBindingResult().getAllErrors().forEach(error -> fields.put(
                 ((FieldError) error).getField(), error.getDefaultMessage()));
         return error(HttpStatus.BAD_REQUEST, "Error de validación", fields);
+    }}
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<Map<String, Object>> handleBadRequest(IllegalArgumentException ex) {{
+        return error(HttpStatus.BAD_REQUEST, ex.getMessage(), Map.of());
+    }}
+
+    @ExceptionHandler({{ObjectOptimisticLockingFailureException.class,
+            DataIntegrityViolationException.class}})
+    public ResponseEntity<Map<String, Object>> handleConflict(RuntimeException ex) {{
+        return error(HttpStatus.CONFLICT,
+                "Conflicto de concurrencia o integridad", Map.of());
     }}
 
     private ResponseEntity<Map<String, Object>> error(
@@ -420,7 +510,8 @@ def get_controller_test(
         required_test = f"""
     @Test
     void create_MissingRequiredInput_Returns400() throws Exception {{
-        mockMvc.perform(post("/api/{entity_lower}s")
+        mockMvc.perform(post("/api/{entity_lower}s").with(csrf())
+                .header("Idempotency-Key", "test-key")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{{}}"))
                 .andExpect(status().isBadRequest());
@@ -434,7 +525,8 @@ def get_controller_test(
     void create_InvalidValue_Returns400() throws Exception {{
         {entity_name}CreateDTO createDTO = new {entity_name}CreateDTO();
 {invalid_assignments}
-        mockMvc.perform(post("/api/{entity_lower}s")
+        mockMvc.perform(post("/api/{entity_lower}s").with(csrf())
+                .header("Idempotency-Key", "test-key")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(createDTO)))
                 .andExpect(status().isBadRequest());
@@ -448,6 +540,7 @@ import {layout.domain_package}.{entity_name};
 import {layout.dto_package}.*;
 import {layout.input_package}.{entity_name}UseCase;
 import {layout.web_mapper_package}.{entity_name}WebMapper;
+import com.example.crud.configuration.IdempotencyService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -455,14 +548,18 @@ import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.security.test.context.support.WithMockUser;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.math.BigDecimal;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 
 @WebMvcTest({entity_name}Controller.class)
+@WithMockUser(roles = "ADMIN")
 class {entity_name}ControllerTest {{
     @Autowired
     private MockMvc mockMvc;
@@ -472,6 +569,8 @@ class {entity_name}ControllerTest {{
     private {entity_name}UseCase useCase;
     @MockBean
     private {entity_name}WebMapper mapper;
+    @MockBean
+    private IdempotencyService idempotencyService;
 
     @Test
     void create_ValidInput_Returns201() throws Exception {{
@@ -481,10 +580,11 @@ class {entity_name}ControllerTest {{
         {entity_name}ResponseDTO responseDTO = new {entity_name}ResponseDTO();
         responseDTO.setId(1);
         when(mapper.toDomain(any({entity_name}CreateDTO.class))).thenReturn(domain);
-        when(useCase.create(domain)).thenReturn(domain);
+        when(idempotencyService.execute(any(), any(), any(), any(), any())).thenReturn(domain);
         when(mapper.toDto(domain)).thenReturn(responseDTO);
 
-        mockMvc.perform(post("/api/{entity_lower}s")
+        mockMvc.perform(post("/api/{entity_lower}s").with(csrf())
+                .header("Idempotency-Key", "test-key")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(createDTO)))
                 .andExpect(status().isCreated())
@@ -500,7 +600,7 @@ class {entity_name}ControllerTest {{
         when(useCase.patch(1, domain)).thenReturn(domain);
         when(mapper.toDto(domain)).thenReturn(new {entity_name}ResponseDTO());
 
-        mockMvc.perform(patch("/api/{entity_lower}s/1")
+        mockMvc.perform(patch("/api/{entity_lower}s/1").with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{{}}"))
                 .andExpect(status().isOk());
