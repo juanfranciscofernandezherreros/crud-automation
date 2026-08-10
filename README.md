@@ -63,6 +63,28 @@ Ejemplo con auditoría:
 python .\generate_crud.py Pedido "id:int, numero:string:not_blank:max=40, creado_en:datetime, actualizado_en:datetime"
 ```
 
+## Ejemplo avanzado
+
+Este ejemplo combina todos los tipos, reglas obligatorias, límites de texto y
+numéricos, fechas de negocio y campos de auditoría:
+
+```powershell
+python .\generate_crud.py OperacionFinanciera `
+  "id:int, referencia:string:not_blank:min=8:max=64, " `
+  "descripcion:string:required:max=255, " `
+  "importe:double:required:positive:min=0.01:max=999999.99, " `
+  "unidades:int:required:positive:min=1:max=10000, " `
+  "tasa:float:positive:max=100, activa:boolean:required, " `
+  "fecha_valor:date:required, procesado_en:datetime:required, " `
+  "creado_en:datetime, actualizado_en:datetime"
+
+mvn -f .\crud-operacionfinanciera\pom.xml verify
+```
+
+El proyecto resultante incluye validaciones distintas para creación,
+actualización completa y parche parcial, pruebas HTTP de entradas válidas e
+inválidas, migración Flyway, Docker y un JAR ejecutable.
+
 ## Validación
 
 El generador detiene la ejecución antes de escribir archivos cuando encuentra:
