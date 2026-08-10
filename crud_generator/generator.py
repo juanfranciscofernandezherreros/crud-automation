@@ -11,7 +11,7 @@ from .fields import (
     has_required_input,
 )
 from .parsing import normalize_entity_name, parse_attributes
-from . import templates
+from . import documentation, templates
 from .writer import write_file
 
 
@@ -39,6 +39,12 @@ def generate_layered_project(entity_name, attrs_str):
     sql_fields = generate_sql_fields(attrs)
 
     write_file(f"{base_dir}/pom.xml", templates.get_pom_xml(entity_lower))
+    write_file(
+        f"{base_dir}/docs/index.html",
+        documentation.get_documentation_html(
+            entity_name, entity_lower, "layered", attrs, attrs_str
+        ),
+    )
     write_file(f"{base_dir}/Dockerfile", templates.DOCKERFILE)
     write_file(
         f"{base_dir}/docker-compose.yml",

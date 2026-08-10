@@ -1,6 +1,6 @@
 """Generación de arquitecturas hexagonal y clean."""
 
-from . import ports_templates, templates
+from . import documentation, ports_templates, templates
 from .fields import (
     generate_domain_update_statements,
     generate_dto_fields,
@@ -33,6 +33,12 @@ def generate_ports_project(entity_name, attrs_str, layout):
     resources = f"{base_dir}/src/main/resources"
 
     write_file(f"{base_dir}/pom.xml", templates.get_pom_xml(entity_lower))
+    write_file(
+        f"{base_dir}/docs/index.html",
+        documentation.get_documentation_html(
+            entity_name, entity_lower, layout.name, attrs, attrs_str
+        ),
+    )
     write_file(f"{base_dir}/Dockerfile", templates.DOCKERFILE)
     write_file(
         f"{base_dir}/docker-compose.yml",

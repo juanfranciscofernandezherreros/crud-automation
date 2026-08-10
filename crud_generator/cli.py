@@ -65,6 +65,6 @@ def main(args=None):
 
     print(
         f"Proyecto {base_dir} generado con éxito, "
-        "incluyendo todas las capas y tests."
+        "incluyendo todas las capas, tests y docs/index.html."
     )
     return 0

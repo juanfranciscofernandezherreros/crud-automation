@@ -97,6 +97,24 @@ python .\generate_crud.py OperacionFinanciera `
 mvn -f .\crud-operacionfinanciera-clean\pom.xml verify
 ```
 
+## Documentacion HTML generada
+
+Cada proyecto incluye `docs/index.html`, una documentacion tecnica autonoma y
+responsive que se puede abrir directamente en el navegador. El contenido se
+calcula en cada ejecucion a partir de la entidad, arquitectura y definicion de
+campos utilizada; no es un documento generico copiado sin adaptar.
+
+Incluye el comando reproducible, tabla de tipos y reglas, restricciones de
+PostgreSQL, flujo arquitectonico, endpoints, roles, paginacion, idempotencia,
+concurrencia optimista, observabilidad, variables de entorno y pruebas. Los
+botones permiten copiar los comandos de generacion, ejecucion y verificacion.
+
+Por ejemplo, despues de generar `FondoInversion` con arquitectura hexagonal:
+
+```powershell
+Start-Process .\crud-fondoinversion-hexagonal\docs\index.html
+```
+
 ## Produccion
 
 - Los listados estan paginados: 20 elementos por defecto y 100 como maximo.
@@ -168,6 +186,7 @@ crud_generator/
   architectures.py        Definicion de layouts
   generator.py            Generacion layered
   ports_generator.py      Generacion hexagonal y clean
+  documentation.py        Documentacion HTML dinamica
   parsing.py              Analisis y validacion de entradas
   fields.py               Campos Java, DTO y SQL
   templates.py            Plantillas compartidas y layered
