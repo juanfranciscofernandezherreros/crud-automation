@@ -1,0 +1,13 @@
+# Proyectos generados por la automatización
+crud-*/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Entornos virtuales
+.venv/
+venv/
