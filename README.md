@@ -1,0 +1,1 @@
+python .\generate_crud.py Producto "id:int, nombre:string, precio:float"

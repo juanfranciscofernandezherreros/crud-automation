@@ -1,0 +1,15 @@
+com\example\crud\dto\ProductoCreateDTO.class
+com\example\crud\dto\ProductoResponseDTO.class
+com\example\crud\exception\ResourceNotFoundException.class
+com\example\crud\dto\ProductoPatchDTO.class
+com\example\crud\entity\Producto.class
+com\example\crud\exception\GlobalExceptionHandler.class
+com\example\crud\service\ProductoService.class
+com\example\crud\mapper\ProductoMapperImpl.class
+com\example\crud\CrudApplication.class
+com\example\crud\repository\ProductoRepository.class
+com\example\crud\controller\ProductoController.class
+com\example\crud\mapper\ProductoMapper.class
+com\example\crud\entity\Producto$ProductoBuilder.class
+com\example\crud\dto\ProductoUpdateDTO.class
+com\example\crud\service\impl\ProductoServiceImpl.class

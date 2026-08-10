@@ -1,0 +1,13 @@
+C:\Develop\scripts_python\crud-producto\src\main\java\com\example\crud\dto\ProductoUpdateDTO.java
+C:\Develop\scripts_python\crud-producto\src\main\java\com\example\crud\entity\Producto.java
+C:\Develop\scripts_python\crud-producto\src\main\java\com\example\crud\exception\ResourceNotFoundException.java
+C:\Develop\scripts_python\crud-producto\src\main\java\com\example\crud\service\ProductoService.java
+C:\Develop\scripts_python\crud-producto\src\main\java\com\example\crud\exception\GlobalExceptionHandler.java
+C:\Develop\scripts_python\crud-producto\src\main\java\com\example\crud\dto\ProductoPatchDTO.java
+C:\Develop\scripts_python\crud-producto\src\main\java\com\example\crud\dto\ProductoResponseDTO.java
+C:\Develop\scripts_python\crud-producto\src\main\java\com\example\crud\controller\ProductoController.java
+C:\Develop\scripts_python\crud-producto\src\main\java\com\example\crud\CrudApplication.java
+C:\Develop\scripts_python\crud-producto\src\main\java\com\example\crud\repository\ProductoRepository.java
+C:\Develop\scripts_python\crud-producto\src\main\java\com\example\crud\mapper\ProductoMapper.java
+C:\Develop\scripts_python\crud-producto\src\main\java\com\example\crud\service\impl\ProductoServiceImpl.java
+C:\Develop\scripts_python\crud-producto\src\main\java\com\example\crud\dto\ProductoCreateDTO.java
