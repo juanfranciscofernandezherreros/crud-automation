@@ -49,6 +49,11 @@ class GeneratedProjectAcceptanceTest(unittest.TestCase):
             "detalle:text:not_blank:max=5000, "
             "importe:decimal:precision=20:scale=4:positive",
         ),
+        "Sensor": (
+            "hexagonal",
+            "id:int, nombre:string:not_blank:max=60, "
+            "temperatura:float:required, humedad:double:required:positive",
+        ),
     }
 
     def test_generated_projects_compile_and_pass_their_tests(self):
@@ -63,7 +68,25 @@ class GeneratedProjectAcceptanceTest(unittest.TestCase):
                         project_directory = root / generate_project(
                             entity_name, attributes, architecture
                         )
+                        self._assert_docker_env_files(project_directory)
                         self._run_maven_tests(project_directory, workspace)
+
+    def _assert_docker_env_files(self, project_directory):
+        env_example = project_directory / ".env.example"
+        self.assertTrue(
+            env_example.is_file(),
+            f"{env_example} no se generó: docker compose up fallaría "
+            "sin variables definidas.",
+        )
+        env_contents = env_example.read_text(encoding="utf-8")
+        for var in (
+            "POSTGRES_USER",
+            "POSTGRES_PASSWORD",
+            "APP_SECURITY_USER",
+            "APP_SECURITY_PASSWORD",
+        ):
+            self.assertIn(f"{var}=", env_contents)
+        self.assertTrue((project_directory / ".gitignore").is_file())
 
     def _run_maven_tests(self, project_directory, workspace):
         command = [MAVEN]

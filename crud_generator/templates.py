@@ -137,6 +137,23 @@ services:
       retries: 5
 """
 
+def get_env_example():
+    return """# Copia este fichero a ".env" (mismo directorio que docker-compose.yml) y
+# ajusta los valores antes de ejecutar "docker compose up". docker compose
+# carga ".env" automaticamente; sin el, "docker compose up" falla porque
+# las cuatro variables son obligatorias en docker-compose.yml.
+POSTGRES_USER=app_user
+POSTGRES_PASSWORD=cambiar-en-produccion
+APP_SECURITY_USER=admin
+APP_SECURITY_PASSWORD=otra-clave-segura
+"""
+
+
+GITIGNORE = """target/
+.env
+"""
+
+
 def get_application_yml(entity_lower):
     return f"""server:
   port: 8080

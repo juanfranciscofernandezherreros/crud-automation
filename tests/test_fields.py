@@ -148,5 +148,21 @@ class DtoFieldsTest(unittest.TestCase):
         self.assertIn('case "id" -> spec = spec.and(', cases)
 
 
+class FloatingPointSqlTypeTest(unittest.TestCase):
+    def test_float_and_double_map_to_floating_point_sql_types_not_decimal(self):
+        # DECIMAL es un tipo de punto fijo: Hibernate valida el esquema
+        # esperando REAL/DOUBLE PRECISION para campos Java float/Double y
+        # rechaza el arranque si Flyway creo la columna como DECIMAL.
+        attributes = parse_attributes(
+            "id:int, temperatura:float:required, humedad:double:required"
+        )
+
+        sql = generate_sql_fields(attributes)
+
+        self.assertIn("temperatura REAL NOT NULL", sql)
+        self.assertIn("humedad DOUBLE PRECISION NOT NULL", sql)
+        self.assertNotIn("DECIMAL", sql)
+
+
 if __name__ == "__main__":
     unittest.main()

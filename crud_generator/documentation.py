@@ -287,7 +287,8 @@ $env:SPRING_DATASOURCE_PASSWORD = "cambiar-en-produccion"
 $env:APP_SECURITY_USER = "admin"
 $env:APP_SECURITY_PASSWORD = "otra-clave-segura"
 
-mvn -f .\\{escape(project_dir)}\\pom.xml spring-boot:run</code></pre></div><div class="callout warning"><strong>Importante:</strong> usa un gestor de secretos para las credenciales reales.</div></section>
+mvn -f .\\{escape(project_dir)}\\pom.xml spring-boot:run</code></pre></div><div class="callout warning"><strong>Importante:</strong> usa un gestor de secretos para las credenciales reales.</div><h3>Con Docker</h3><p class="lead">Copia <code>.env.example</code> a <code>.env</code> y ajusta los valores; <code>docker compose</code> lo carga automaticamente. Sin ese fichero, <code>docker compose up</code> falla con <code>required variable POSTGRES_USER is missing a value</code>, porque las cuatro variables son obligatorias en <code>docker-compose.yml</code>.</p><div class="code-wrap"><button class="copy" data-copy="docker-command">Copiar comando</button><pre id="docker-command"><code>copy .env.example .env
+docker compose up -d --build</code></pre></div></section>
       <section id="pruebas"><span class="eyebrow section-mark">07 / Pruebas</span><h2>Verificacion completa</h2><ol class="steps"><li><strong>Tests unitarios.</strong> Validan el servicio y sus reglas aisladas.</li><li><strong>Tests MVC.</strong> Comprueban JSON, validacion, seguridad y estados HTTP.</li><li><strong>PostgreSQL real.</strong> Testcontainers inicia PostgreSQL 16 y ejecuta Flyway.</li><li><strong>Idempotencia.</strong> Verifica que una clave repetida solo crea una vez.</li><li><strong>Empaquetado.</strong> Maven construye el JAR ejecutable.</li></ol><div class="code-wrap"><button class="copy" data-copy="verify-command">Copiar verificacion</button><pre id="verify-command"><code>mvn -f .\\{escape(project_dir)}\\pom.xml verify</code></pre></div></section>
     </main>
   </div>

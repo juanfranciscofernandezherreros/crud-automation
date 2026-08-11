@@ -238,7 +238,18 @@ curl.exe -u admin:otra-clave-segura `
 
 `docker-compose.yml` tambien obliga a definir `POSTGRES_USER`,
 `POSTGRES_PASSWORD`, `APP_SECURITY_USER` y `APP_SECURITY_PASSWORD` antes de
-ejecutar `docker compose up`.
+ejecutar `docker compose up`. Cada proyecto generado incluye un
+`.env.example` con esas cuatro variables; cópialo a `.env` (docker compose lo
+carga automáticamente) y ajusta los valores:
+
+```powershell
+copy .env.example .env
+docker compose up -d --build
+```
+
+Sin ese fichero `docker compose up` falla con
+`required variable POSTGRES_USER is missing a value`. `.env` está en el
+`.gitignore` que se genera junto al proyecto, para no versionar credenciales.
 
 ## Validacion
 

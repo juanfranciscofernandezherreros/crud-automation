@@ -64,5 +64,26 @@ class EntityTemplateBuilderTest(unittest.TestCase):
         self.assertIn("@NoArgsConstructor", domain)
 
 
+class DockerEnvFileTest(unittest.TestCase):
+    def test_env_example_defines_every_variable_required_by_docker_compose(self):
+        compose = templates.get_docker_compose("producto")
+        env_example = templates.get_env_example()
+
+        required_vars = [
+            "POSTGRES_USER",
+            "POSTGRES_PASSWORD",
+            "APP_SECURITY_USER",
+            "APP_SECURITY_PASSWORD",
+        ]
+        for var in required_vars:
+            with self.subTest(var=var):
+                self.assertIn(f"${{{var}:?", compose)
+                self.assertIn(f"{var}=", env_example)
+
+    def test_gitignore_excludes_env_and_build_output(self):
+        self.assertIn(".env", templates.GITIGNORE)
+        self.assertIn("target/", templates.GITIGNORE)
+
+
 if __name__ == "__main__":
     unittest.main()

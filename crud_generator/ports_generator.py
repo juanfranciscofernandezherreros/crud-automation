@@ -64,6 +64,8 @@ def generate_ports_project_from_attrs(
         f"{base_dir}/docker-compose.yml",
         templates.get_docker_compose(entity_lower),
     )
+    write_file(f"{base_dir}/.env.example", templates.get_env_example())
+    write_file(f"{base_dir}/.gitignore", templates.GITIGNORE)
     write_file(
         f"{resources}/application.yml", templates.get_application_yml(entity_lower)
     )

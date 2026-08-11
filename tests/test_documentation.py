@@ -46,6 +46,8 @@ class DocumentationTest(unittest.TestCase):
         )
         self.assertIn("Idempotency-Key", html)
         self.assertIn("Testcontainers", html)
+        self.assertIn(".env.example", html)
+        self.assertIn("docker compose up", html)
 
     def test_every_architecture_generates_its_documentation_file(self):
         with tempfile.TemporaryDirectory() as directory:
