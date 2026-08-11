@@ -1,6 +1,7 @@
 """Generación de arquitecturas hexagonal y clean."""
 
 from . import documentation, ports_templates, templates
+from .architectures import DEFAULT_BASE_PACKAGE
 from .fields import (
     exceeds_constructor_param_limit,
     generate_domain_update_statements,
@@ -16,8 +17,8 @@ from .fields import (
     has_default,
     has_required_input,
 )
-from .parsing import parse_attributes
-from .writer import write_file
+from .parsing import DEFAULT_ENDPOINTS, parse_attributes
+from .writer import write_file as _write_file
 
 
 def package_path(package):
@@ -33,7 +34,17 @@ def generate_ports_project(entity_name, attrs_str, layout):
     return generate_ports_project_from_attrs(entity_name, attrs, layout, attrs_str)
 
 
-def generate_ports_project_from_attrs(entity_name, attrs, layout, attrs_str):
+def generate_ports_project_from_attrs(
+    entity_name, attrs, layout, attrs_str, base_package=None, endpoints=None
+):
+    base_package = base_package or DEFAULT_BASE_PACKAGE
+    endpoints = endpoints or list(DEFAULT_ENDPOINTS)
+
+    def write_file(path, content):
+        if base_package != DEFAULT_BASE_PACKAGE:
+            content = content.replace(DEFAULT_BASE_PACKAGE, base_package)
+        _write_file(path, content)
+
     entity_lower = entity_name.lower()
     base_dir = f"crud-{entity_lower}-{layout.name}"
     main_java = f"{base_dir}/src/main/java"
@@ -44,7 +55,8 @@ def generate_ports_project_from_attrs(entity_name, attrs, layout, attrs_str):
     write_file(
         f"{base_dir}/docs/index.html",
         documentation.get_documentation_html(
-            entity_name, entity_lower, layout.name, attrs, attrs_str
+            entity_name, entity_lower, layout.name, attrs, attrs_str,
+            base_package, endpoints,
         ),
     )
     write_file(f"{base_dir}/Dockerfile", templates.DOCKERFILE)
@@ -183,7 +195,7 @@ def generate_ports_project_from_attrs(entity_name, attrs, layout, attrs_str):
         (layout.web_mapper_package, f"{entity_name}WebMapper.java"):
             ports_templates.get_web_mapper(entity_name, layout),
         (layout.controller_package, f"{entity_name}Controller.java"):
-            ports_templates.get_controller(entity_name, entity_lower, layout),
+            ports_templates.get_controller(entity_name, entity_lower, layout, endpoints),
         (layout.persistence_package, f"{entity_name}JpaEntity.java"):
             ports_templates.get_persistence_entity(
                 entity_name,
@@ -227,6 +239,7 @@ def generate_ports_project_from_attrs(entity_name, attrs, layout, attrs_str):
             generate_test_dto_assignments(attrs),
             has_required_input(attrs),
             generate_invalid_test_dto_assignments(attrs),
+            endpoints,
         ),
     )
     write_file(

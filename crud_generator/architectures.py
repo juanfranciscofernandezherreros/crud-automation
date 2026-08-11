@@ -21,32 +21,40 @@ class PortsArchitecture:
 
 ARCHITECTURES = ("layered", "hexagonal", "clean")
 
-PORTS_ARCHITECTURES = {
-    "hexagonal": PortsArchitecture(
-        name="hexagonal",
-        domain_package="com.example.crud.domain.model",
-        input_package="com.example.crud.application.port.in",
-        output_package="com.example.crud.application.port.out",
-        service_package="com.example.crud.application.service",
-        controller_package="com.example.crud.adapter.in.web",
-        dto_package="com.example.crud.adapter.in.web.dto",
-        web_mapper_package="com.example.crud.adapter.in.web.mapper",
-        persistence_package="com.example.crud.adapter.out.persistence",
-        exception_package="com.example.crud.shared.exception",
-    ),
-    "clean": PortsArchitecture(
-        name="clean",
-        domain_package="com.example.crud.domain.entity",
-        input_package="com.example.crud.application.usecase",
-        output_package="com.example.crud.application.gateway",
-        service_package="com.example.crud.application.service",
-        controller_package="com.example.crud.interfaceadapter.controller",
-        dto_package="com.example.crud.interfaceadapter.dto",
-        web_mapper_package="com.example.crud.interfaceadapter.mapper",
-        persistence_package="com.example.crud.framework.persistence",
-        exception_package="com.example.crud.shared.exception",
-    ),
-}
+DEFAULT_BASE_PACKAGE = "com.example.crud"
+
+
+def build_ports_architectures(base_package=DEFAULT_BASE_PACKAGE):
+    """Layouts de paquetes para hexagonal/clean, anclados a base_package."""
+    return {
+        "hexagonal": PortsArchitecture(
+            name="hexagonal",
+            domain_package=f"{base_package}.domain.model",
+            input_package=f"{base_package}.application.port.in",
+            output_package=f"{base_package}.application.port.out",
+            service_package=f"{base_package}.application.service",
+            controller_package=f"{base_package}.adapter.in.web",
+            dto_package=f"{base_package}.adapter.in.web.dto",
+            web_mapper_package=f"{base_package}.adapter.in.web.mapper",
+            persistence_package=f"{base_package}.adapter.out.persistence",
+            exception_package=f"{base_package}.shared.exception",
+        ),
+        "clean": PortsArchitecture(
+            name="clean",
+            domain_package=f"{base_package}.domain.entity",
+            input_package=f"{base_package}.application.usecase",
+            output_package=f"{base_package}.application.gateway",
+            service_package=f"{base_package}.application.service",
+            controller_package=f"{base_package}.interfaceadapter.controller",
+            dto_package=f"{base_package}.interfaceadapter.dto",
+            web_mapper_package=f"{base_package}.interfaceadapter.mapper",
+            persistence_package=f"{base_package}.framework.persistence",
+            exception_package=f"{base_package}.shared.exception",
+        ),
+    }
+
+
+PORTS_ARCHITECTURES = build_ports_architectures()
 
 
 def normalize_architecture(value):

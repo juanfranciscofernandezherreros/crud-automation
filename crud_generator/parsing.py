@@ -55,6 +55,48 @@ def to_camel_case(snake_str):
     return components[0] + "".join(component.title() for component in components[1:])
 
 
+PACKAGE_PATTERN = re.compile(r"^[a-z][a-z0-9]*(?:\.[a-z][a-z0-9]*)*$")
+
+
+def normalize_base_package(value):
+    value = value.strip()
+    if not value:
+        raise DefinitionError("'package' no puede estar vacío.")
+    if not PACKAGE_PATTERN.fullmatch(value):
+        raise DefinitionError(
+            f"'package' no válido: '{value}'. Usa minúsculas separadas por puntos, "
+            "como 'com.miempresa.proyecto'."
+        )
+    return value
+
+
+VALID_ENDPOINTS = ("list", "get", "create", "update", "patch", "delete")
+DEFAULT_ENDPOINTS = VALID_ENDPOINTS
+
+
+def normalize_endpoints(values):
+    if not isinstance(values, list) or not values:
+        raise DefinitionError(
+            "'endpoints' debe ser una lista no vacía con alguno de: "
+            f"{', '.join(VALID_ENDPOINTS)}."
+        )
+    normalized = []
+    seen = set()
+    for value in values:
+        if not isinstance(value, str):
+            raise DefinitionError(f"Cada endpoint debe ser texto: '{value}'.")
+        endpoint = value.strip().lower()
+        if endpoint not in VALID_ENDPOINTS:
+            raise DefinitionError(
+                f"Endpoint desconocido '{value}'. Opciones: {', '.join(VALID_ENDPOINTS)}."
+            )
+        if endpoint in seen:
+            raise DefinitionError(f"El endpoint '{endpoint}' está duplicado.")
+        seen.add(endpoint)
+        normalized.append(endpoint)
+    return normalized
+
+
 def _validate_default_literal(value, type_name, name):
     if type_name in STRING_LIKE_TYPES:
         return value

@@ -2,7 +2,9 @@
 
 from html import escape
 
+from .architectures import DEFAULT_BASE_PACKAGE
 from .fields import format_default_sql_literal, generate_composite_unique_groups
+from .parsing import DEFAULT_ENDPOINTS
 
 
 ARCHITECTURE_DETAILS = {
@@ -149,8 +151,53 @@ def _architecture_nodes(architecture):
     )
 
 
-def get_documentation_html(entity_name, entity_lower, architecture, attrs, attrs_str):
+def _operation_rows(endpoint, endpoints):
+    rows = []
+    if "create" in endpoints:
+        rows.append(
+            f'<tr><td><span class="method post">POST</span></td><td><code>{endpoint}</code></td>'
+            "<td>ADMIN</td><td>201, requiere Idempotency-Key</td></tr>"
+        )
+    if "list" in endpoints:
+        rows.append(
+            '<tr><td><span class="method get">GET</span></td>'
+            f'<td><code>{endpoint}?page=0&amp;size=20&amp;sort=id</code></td>'
+            "<td>USER / ADMIN</td><td>Pagina de resultados</td></tr>"
+        )
+    if "get" in endpoints:
+        rows.append(
+            '<tr><td><span class="method get">GET</span></td>'
+            f'<td><code>{endpoint}/{{id}}</code></td>'
+            "<td>USER / ADMIN</td><td>Recurso individual</td></tr>"
+        )
+    if "update" in endpoints:
+        rows.append(
+            '<tr><td><span class="method write">PUT</span></td>'
+            f'<td><code>{endpoint}/{{id}}</code></td>'
+            "<td>ADMIN</td><td>Actualizacion completa</td></tr>"
+        )
+    if "patch" in endpoints:
+        rows.append(
+            '<tr><td><span class="method write">PATCH</span></td>'
+            f'<td><code>{endpoint}/{{id}}</code></td>'
+            "<td>ADMIN</td><td>Actualizacion parcial</td></tr>"
+        )
+    if "delete" in endpoints:
+        rows.append(
+            '<tr><td><span class="method delete">DELETE</span></td>'
+            f'<td><code>{endpoint}/{{id}}</code></td>'
+            "<td>ADMIN</td><td>204 sin contenido</td></tr>"
+        )
+    return "".join(rows)
+
+
+def get_documentation_html(
+    entity_name, entity_lower, architecture, attrs, attrs_str,
+    base_package=None, endpoints=None,
+):
     """Devuelve la documentacion tecnica completa y lista para abrir."""
+    base_package = base_package or DEFAULT_BASE_PACKAGE
+    endpoints = endpoints or list(DEFAULT_ENDPOINTS)
     details = ARCHITECTURE_DETAILS[architecture]
     project_dir = _project_directory(entity_lower, architecture)
     endpoint = f"/api/{entity_lower}s"
@@ -159,6 +206,12 @@ def get_documentation_html(entity_name, entity_lower, architecture, attrs, attrs
     field_rows = _field_rows(attrs)
     composite_unique_callout = _composite_unique_callout(attrs)
     nodes = _architecture_nodes(architecture)
+    operation_rows = _operation_rows(endpoint, endpoints)
+    package_callout = (
+        f'<div class="callout"><strong>Paquete base:</strong> <code>{escape(base_package)}</code></div>'
+        if base_package != DEFAULT_BASE_PACKAGE
+        else ""
+    )
     entity = escape(entity_name)
     architecture_label = escape(details["label"])
     architecture_description = escape(details["description"])
@@ -226,7 +279,7 @@ def get_documentation_html(entity_name, entity_lower, architecture, attrs, attrs
       <section id="generacion"><span class="eyebrow section-mark">01 / Generacion</span><h2>Comando reproducible</h2><p class="lead">Este comando vuelve a generar el mismo proyecto, con sus tipos, validaciones y arquitectura.</p><div class="code-wrap"><button class="copy" data-copy="generator-command">Copiar comando</button><pre id="generator-command"><code>{command}</code></pre></div><div class="callout"><strong>Salida:</strong> <code>{escape(project_dir)}/</code>, proyecto Maven independiente y ejecutable.</div></section>
       <section id="modelo"><span class="eyebrow section-mark">02 / Modelo</span><h2>Campos e invariantes</h2><p class="lead">Bean Validation protege la API y Flyway traslada las reglas compatibles a PostgreSQL.</p><div class="table-wrap"><table><thead><tr><th>Campo</th><th>Java</th><th>Reglas</th><th>PostgreSQL</th></tr></thead><tbody>{field_rows}</tbody></table></div>{composite_unique_callout}</section>
       <section id="arquitectura"><span class="eyebrow section-mark">03 / Arquitectura</span><h2>{architecture_label}</h2><p class="lead">{architecture_description}</p><div class="flow">{nodes}</div><div class="grid-3"><article class="panel"><span class="label">Paginacion</span><h3>Consultas acotadas</h3><p>20 elementos por defecto y 100 como maximo.</p></article><article class="panel"><span class="label">Concurrencia</span><h3>Version optimista</h3><p>JPA usa <code>@Version</code> y devuelve conflictos HTTP 409.</p></article><article class="panel"><span class="label">Persistencia</span><h3>Esquema validado</h3><p>Hibernate valida el esquema creado por Flyway.</p></article></div></section>
-      <section id="api"><span class="eyebrow section-mark">04 / API REST</span><h2>Operaciones disponibles</h2><div class="table-wrap"><table><thead><tr><th>Metodo</th><th>Ruta</th><th>Rol</th><th>Resultado</th></tr></thead><tbody><tr><td><span class="method post">POST</span></td><td><code>{endpoint}</code></td><td>ADMIN</td><td>201, requiere Idempotency-Key</td></tr><tr><td><span class="method get">GET</span></td><td><code>{endpoint}?page=0&amp;size=20&amp;sort=id</code></td><td>USER / ADMIN</td><td>Pagina de resultados</td></tr><tr><td><span class="method get">GET</span></td><td><code>{endpoint}/{{id}}</code></td><td>USER / ADMIN</td><td>Recurso individual</td></tr><tr><td><span class="method write">PUT / PATCH</span></td><td><code>{endpoint}/{{id}}</code></td><td>ADMIN</td><td>Actualizacion completa o parcial</td></tr><tr><td><span class="method delete">DELETE</span></td><td><code>{endpoint}/{{id}}</code></td><td>ADMIN</td><td>204 sin contenido</td></tr></tbody></table></div></section>
+      <section id="api"><span class="eyebrow section-mark">04 / API REST</span><h2>Operaciones disponibles</h2><div class="table-wrap"><table><thead><tr><th>Metodo</th><th>Ruta</th><th>Rol</th><th>Resultado</th></tr></thead><tbody>{operation_rows}</tbody></table></div>{package_callout}</section>
       <section id="produccion"><span class="eyebrow section-mark">05 / Produccion</span><h2>Controles operativos</h2><div class="grid-2"><article class="panel"><span class="label">Seguridad</span><h3>Autorizacion por roles</h3><p>HTTP Basic stateless, lectura USER/ADMIN y escritura ADMIN.</p></article><article class="panel"><span class="label">Idempotencia</span><h3>Altas sin duplicados</h3><p>PostgreSQL conserva la clave y serializa solicitudes concurrentes.</p></article><article class="panel"><span class="label">Disponibilidad</span><h3>Rate limiting</h3><p>Limite por minuto e IP configurable por entorno.</p></article><article class="panel"><span class="label">Observabilidad</span><h3>Metricas y trazas</h3><p>Actuator, Prometheus, traceId, spanId y exportacion OTLP.</p></article></div></section>
       <section id="ejecucion"><span class="eyebrow section-mark">06 / Ejecucion</span><h2>Configuracion local</h2><div class="code-wrap"><button class="copy" data-copy="run-command">Copiar variables</button><pre id="run-command"><code>$env:SPRING_DATASOURCE_URL = "jdbc:postgresql://localhost:5432/{database}"
 $env:SPRING_DATASOURCE_USERNAME = "app_user"

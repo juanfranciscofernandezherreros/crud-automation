@@ -22,7 +22,12 @@ se indica en la CLI). A diferencia del DSL de texto, los valores de las reglas
 
 import json
 
-from .parsing import DefinitionError, parse_attributes_from_fields
+from .parsing import (
+    DefinitionError,
+    normalize_base_package,
+    normalize_endpoints,
+    parse_attributes_from_fields,
+)
 
 
 def load_schema(path):
@@ -52,11 +57,27 @@ def load_schema(path):
     if architecture is not None and not isinstance(architecture, str):
         raise DefinitionError("'architecture' debe ser un texto si se indica en el JSON.")
 
-    unknown_top_level = set(data) - {"entity", "architecture", "fields"}
+    base_package = data.get("package")
+    if base_package is not None:
+        if not isinstance(base_package, str):
+            raise DefinitionError("'package' debe ser un texto si se indica en el JSON.")
+        base_package = normalize_base_package(base_package)
+
+    endpoints = data.get("endpoints")
+    if endpoints is not None:
+        endpoints = normalize_endpoints(endpoints)
+
+    unknown_top_level = set(data) - {
+        "entity",
+        "architecture",
+        "package",
+        "endpoints",
+        "fields",
+    }
     if unknown_top_level:
         raise DefinitionError(
             f"Claves desconocidas en el JSON: {', '.join(sorted(unknown_top_level))}."
         )
 
     attrs = parse_attributes_from_fields(fields)
-    return entity_name, architecture, attrs
+    return entity_name, architecture, base_package, endpoints, attrs

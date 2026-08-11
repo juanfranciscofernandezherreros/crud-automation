@@ -1,31 +1,82 @@
 {
   "entity": "FondoInversion",
   "architecture": "hexagonal",
+  "package": "com.miempresa.fondos",
+  "endpoints": ["list", "get", "create", "update", "patch", "delete"],
   "fields": [
-    {"name": "id", "type": "int"},
-    {"name": "isin", "type": "string", "max": 12, "not_blank": true, "unique": true, "index": true},
-    {"name": "nombre", "type": "string", "max": 150, "not_blank": true},
-    {"name": "gestora", "type": "string", "max": 150, "not_blank": true, "index": true},
-    {"name": "categoria", "type": "string", "max": 60, "not_blank": true, "index": true},
-    {"name": "divisa", "type": "string", "max": 3, "not_blank": true},
-    {"name": "clase_accion", "type": "string", "max": 30, "not_blank": true},
-    {"name": "patrimonio", "type": "decimal", "precision": 18, "scale": 2, "required": true, "positive": true},
-    {"name": "valor_liquidativo", "type": "decimal", "precision": 12, "scale": 6, "required": true, "positive": true},
-    {"name": "comision_gestion", "type": "decimal", "precision": 5, "scale": 2, "required": true, "min": 0, "max": 100},
-    {"name": "comision_deposito", "type": "decimal", "precision": 5, "scale": 2, "min": 0, "max": 100},
-    {"name": "rentabilidad_ytd", "type": "decimal", "precision": 7, "scale": 4},
-    {"name": "rentabilidad_1a", "type": "decimal", "precision": 7, "scale": 4},
-    {"name": "volatilidad_3a", "type": "decimal", "precision": 6, "scale": 4},
-    {"name": "riesgo_sri", "type": "int", "required": true, "min": 1, "max": 7},
-    {"name": "fecha_constitucion", "type": "date", "required": true},
-    {"name": "fecha_ultima_valoracion", "type": "datetime"},
-    {"name": "activo", "type": "boolean", "required": true, "default": true},
-    {"name": "sostenible", "type": "boolean", "default": false},
-    {"name": "domicilio", "type": "string", "max": 2, "not_blank": true},
-    {"name": "benchmark", "type": "string", "max": 150},
-    {"name": "patrimonio_minimo_inicial", "type": "decimal", "precision": 12, "scale": 2, "positive": true},
-    {"name": "reembolso_minimo", "type": "decimal", "precision": 12, "scale": 2, "positive": true},
-    {"name": "liquidez_diaria", "type": "boolean", "default": true},
-    {"name": "descripcion", "type": "text"}
+    {
+      "name": "id",
+      "type": "int"
+    },
+    {
+      "name": "isin",
+      "type": "string",
+      "max": 12,
+      "not_blank": true,
+      "unique": true,
+      "index": true
+    },
+    {
+      "name": "nombre",
+      "type": "string",
+      "min": 3,
+      "max": 120,
+      "not_blank": true,
+      "required": true
+    },
+    {
+      "name": "descripcion",
+      "type": "text"
+    },
+    {
+      "name": "patrimonio",
+      "type": "decimal",
+      "precision": 18,
+      "scale": 2,
+      "required": true,
+      "default": "0"
+    },
+    {
+      "name": "comision_gestion",
+      "type": "double",
+      "positive": true,
+      "default": "1.5"
+    },
+    {
+      "name": "numero_participes",
+      "type": "int",
+      "default": "0"
+    },
+    {
+      "name": "activo",
+      "type": "boolean",
+      "required": true,
+      "default": "true"
+    },
+    {
+      "name": "fecha_alta",
+      "type": "date",
+      "required": true,
+      "default": "2026-01-01"
+    },
+    {
+      "name": "ultima_actualizacion",
+      "type": "datetime",
+      "default": "2026-01-01T00:00:00"
+    },
+    {
+      "name": "codigo_entidad",
+      "type": "string",
+      "max": 10,
+      "not_blank": true,
+      "composite_unique": "entidad_serie"
+    },
+    {
+      "name": "serie",
+      "type": "string",
+      "max": 5,
+      "not_blank": true,
+      "composite_unique": "entidad_serie"
+    }
   ]
 }

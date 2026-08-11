@@ -1,6 +1,11 @@
 """Orquestación de la generación de un proyecto CRUD."""
 
-from .architectures import PORTS_ARCHITECTURES, normalize_architecture
+from .architectures import (
+    DEFAULT_BASE_PACKAGE,
+    PORTS_ARCHITECTURES,
+    build_ports_architectures,
+    normalize_architecture,
+)
 from .fields import (
     exceeds_constructor_param_limit,
     generate_dto_fields,
@@ -14,53 +19,81 @@ from .fields import (
     has_default,
     has_required_input,
 )
-from .parsing import normalize_entity_name, parse_attributes
+from .parsing import DEFAULT_ENDPOINTS, normalize_entity_name, parse_attributes
 from . import documentation, templates
-from .writer import write_file
+from .writer import write_file as _write_file
 
 
-def generate_project(entity_name, attrs_str, architecture="layered"):
+def generate_project(
+    entity_name, attrs_str, architecture="layered", base_package=None, endpoints=None
+):
     entity_name = normalize_entity_name(entity_name)
     architecture = normalize_architecture(architecture)
+    base_package = base_package or DEFAULT_BASE_PACKAGE
     if architecture in PORTS_ARCHITECTURES:
-        from .ports_generator import generate_ports_project
+        from .ports_generator import generate_ports_project_from_attrs
 
-        return generate_ports_project(
-            entity_name, attrs_str, PORTS_ARCHITECTURES[architecture]
+        attrs = parse_attributes(attrs_str)
+        layout = build_ports_architectures(base_package)[architecture]
+        return generate_ports_project_from_attrs(
+            entity_name, attrs, layout, attrs_str, base_package, endpoints
         )
-    return generate_layered_project(entity_name, attrs_str)
+    return generate_layered_project(entity_name, attrs_str, base_package, endpoints)
 
 
 def generate_project_from_json(json_path, architecture_override=None):
     """Igual que generate_project(), pero leyendo entidad y campos de un JSON."""
     from .json_schema import load_schema
 
-    entity_name, architecture_from_json, attrs = load_schema(json_path)
+    (
+        entity_name,
+        architecture_from_json,
+        base_package,
+        endpoints,
+        attrs,
+    ) = load_schema(json_path)
     entity_name = normalize_entity_name(entity_name)
     architecture = normalize_architecture(
         architecture_override or architecture_from_json or "layered"
     )
+    base_package = base_package or DEFAULT_BASE_PACKAGE
     command_hint = f"__JSON__:{json_path}"
     if architecture in PORTS_ARCHITECTURES:
         from .ports_generator import generate_ports_project_from_attrs
 
+        layout = build_ports_architectures(base_package)[architecture]
         return generate_ports_project_from_attrs(
-            entity_name, attrs, PORTS_ARCHITECTURES[architecture], command_hint
+            entity_name, attrs, layout, command_hint, base_package, endpoints
         )
-    return generate_layered_project_from_attrs(entity_name, attrs, command_hint)
+    return generate_layered_project_from_attrs(
+        entity_name, attrs, command_hint, base_package, endpoints
+    )
 
 
-def generate_layered_project(entity_name, attrs_str):
+def generate_layered_project(entity_name, attrs_str, base_package=None, endpoints=None):
     attrs = parse_attributes(attrs_str)
-    return generate_layered_project_from_attrs(entity_name, attrs, attrs_str)
+    return generate_layered_project_from_attrs(
+        entity_name, attrs, attrs_str, base_package, endpoints
+    )
 
 
-def generate_layered_project_from_attrs(entity_name, attrs, attrs_str):
+def generate_layered_project_from_attrs(
+    entity_name, attrs, attrs_str, base_package=None, endpoints=None
+):
+    base_package = base_package or DEFAULT_BASE_PACKAGE
+    endpoints = endpoints or list(DEFAULT_ENDPOINTS)
+
+    def write_file(path, content):
+        if base_package != DEFAULT_BASE_PACKAGE:
+            content = content.replace(DEFAULT_BASE_PACKAGE, base_package)
+        _write_file(path, content)
+
     entity_lower = entity_name.lower()
     base_dir = f"crud-{entity_lower}"
-    java_base = f"{base_dir}/src/main/java/com/example/crud"
+    package_path = base_package.replace(".", "/")
+    java_base = f"{base_dir}/src/main/java/{package_path}"
     res_base = f"{base_dir}/src/main/resources"
-    test_base = f"{base_dir}/src/test/java/com/example/crud"
+    test_base = f"{base_dir}/src/test/java/{package_path}"
 
     table_name = f"{entity_lower}s"
     entity_fields = generate_entity_fields(attrs)
@@ -70,7 +103,8 @@ def generate_layered_project_from_attrs(entity_name, attrs, attrs_str):
     write_file(
         f"{base_dir}/docs/index.html",
         documentation.get_documentation_html(
-            entity_name, entity_lower, "layered", attrs, attrs_str
+            entity_name, entity_lower, "layered", attrs, attrs_str,
+            base_package, endpoints,
         ),
     )
     write_file(f"{base_dir}/Dockerfile", templates.DOCKERFILE)
@@ -172,7 +206,7 @@ def generate_layered_project_from_attrs(entity_name, attrs, attrs_str):
             entity_name
         ),
         f"controller/{entity_name}Controller.java": templates.get_controller(
-            entity_name, entity_lower
+            entity_name, entity_lower, endpoints
         ),
     }
     for relative_path, content in generated_java_files.items():
@@ -190,6 +224,7 @@ def generate_layered_project_from_attrs(entity_name, attrs, attrs_str):
             generate_test_dto_assignments(attrs),
             has_required_input(attrs),
             generate_invalid_test_dto_assignments(attrs),
+            endpoints,
         ),
     )
     write_file(

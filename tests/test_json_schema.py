@@ -153,10 +153,12 @@ class LoadSchemaTest(unittest.TestCase):
                 },
             )
 
-            entity_name, architecture, attrs = load_schema(path)
+            entity_name, architecture, base_package, endpoints, attrs = load_schema(path)
 
             self.assertEqual("Producto", entity_name)
             self.assertEqual("hexagonal", architecture)
+            self.assertIsNone(base_package)
+            self.assertIsNone(endpoints)
             self.assertEqual(2, len(attrs))
 
     def test_architecture_is_optional(self):
@@ -166,9 +168,26 @@ class LoadSchemaTest(unittest.TestCase):
                 {"entity": "Producto", "fields": [{"name": "id", "type": "int"}]},
             )
 
-            _, architecture, _ = load_schema(path)
+            _, architecture, _, _, _ = load_schema(path)
 
             self.assertIsNone(architecture)
+
+    def test_loads_package_and_endpoints(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = self._write_json(
+                directory,
+                {
+                    "entity": "Producto",
+                    "package": "com.miempresa.catalogo",
+                    "endpoints": ["list", "get"],
+                    "fields": [{"name": "id", "type": "int"}],
+                },
+            )
+
+            _, _, base_package, endpoints, _ = load_schema(path)
+
+            self.assertEqual("com.miempresa.catalogo", base_package)
+            self.assertEqual(["list", "get"], endpoints)
 
     def test_rejects_missing_file(self):
         with self.assertRaisesRegex(DefinitionError, "No se pudo leer"):

@@ -1,5 +1,7 @@
 """Plantillas para arquitecturas basadas en dominio, puertos y adaptadores."""
 
+from .parsing import DEFAULT_ENDPOINTS
+
 
 def get_domain(entity_name, package, fields, include_all_args_builder=True):
     constructor_annotations = (
@@ -356,35 +358,12 @@ public class {entity_name}PersistenceAdapter implements {entity_name}Persistence
 """
 
 
-def get_controller(entity_name, entity_lower, layout):
-    return f"""package {layout.controller_package};
+def get_controller(entity_name, entity_lower, layout, endpoints=None):
+    endpoints = set(endpoints) if endpoints else set(DEFAULT_ENDPOINTS)
 
-import {layout.domain_package}.{entity_name};
-import {layout.domain_package}.PageQuery;
-import {layout.domain_package}.PageResult;
-import {layout.dto_package}.*;
-import {layout.input_package}.{entity_name}UseCase;
-import {layout.web_mapper_package}.{entity_name}WebMapper;
-import com.example.crud.configuration.IdempotencyService;
-import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.validation.Valid;
-import lombok.RequiredArgsConstructor;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
-import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
-import java.net.URI;
-import java.util.Map;
-
-@RestController
-@RequestMapping("/api/{entity_lower}s")
-@RequiredArgsConstructor
-@Tag(name = "{entity_name}")
-public class {entity_name}Controller {{
-
-    private final {entity_name}UseCase useCase;
-    private final {entity_name}WebMapper mapper;
-    private final IdempotencyService idempotencyService;
-
+    methods = []
+    if "create" in endpoints:
+        methods.append(f"""
     @PostMapping
     public ResponseEntity<{entity_name}ResponseDTO> create(
             @RequestHeader("Idempotency-Key") String idempotencyKey,
@@ -399,8 +378,9 @@ public class {entity_name}Controller {{
         URI location = ServletUriComponentsBuilder.fromCurrentRequest()
                 .path("/{{id}}").buildAndExpand(response.getId()).toUri();
         return ResponseEntity.created(location).body(response);
-    }}
-
+    }}""")
+    if "list" in endpoints:
+        methods.append(f"""
     @GetMapping
     public ResponseEntity<PageResult<{entity_name}ResponseDTO>> findAll(
             @RequestParam(defaultValue = "0") int page,
@@ -411,30 +391,87 @@ public class {entity_name}Controller {{
         return ResponseEntity.ok(new PageResult<>(
                 result.content().stream().map(mapper::toDto).toList(),
                 result.totalElements(), result.totalPages(), result.page(), result.size()));
-    }}
-
+    }}""")
+    if "get" in endpoints:
+        methods.append(f"""
     @GetMapping("/{{id}}")
     public ResponseEntity<{entity_name}ResponseDTO> findById(@PathVariable Integer id) {{
         return ResponseEntity.ok(mapper.toDto(useCase.findById(id)));
-    }}
-
+    }}""")
+    if "update" in endpoints:
+        methods.append(f"""
     @PutMapping("/{{id}}")
     public ResponseEntity<{entity_name}ResponseDTO> update(
             @PathVariable Integer id, @Valid @RequestBody {entity_name}UpdateDTO dto) {{
         return ResponseEntity.ok(mapper.toDto(useCase.update(id, mapper.toDomain(dto))));
-    }}
-
+    }}""")
+    if "patch" in endpoints:
+        methods.append(f"""
     @PatchMapping("/{{id}}")
     public ResponseEntity<{entity_name}ResponseDTO> patch(
             @PathVariable Integer id, @Valid @RequestBody {entity_name}PatchDTO dto) {{
         return ResponseEntity.ok(mapper.toDto(useCase.patch(id, mapper.toDomain(dto))));
-    }}
-
+    }}""")
+    if "delete" in endpoints:
+        methods.append(f"""
     @DeleteMapping("/{{id}}")
     public ResponseEntity<Void> delete(@PathVariable Integer id) {{
         useCase.delete(id);
         return ResponseEntity.noContent().build();
-    }}
+    }}""")
+
+    needs_idempotency = "create" in endpoints
+    needs_valid = bool(endpoints & {"create", "update", "patch"})
+    needs_uri = "create" in endpoints
+    needs_map = "list" in endpoints
+    needs_page_query = "list" in endpoints
+
+    imports = [
+        f"import {layout.domain_package}.{entity_name};",
+    ]
+    if needs_page_query:
+        imports.append(f"import {layout.domain_package}.PageQuery;")
+    imports.append(f"import {layout.domain_package}.PageResult;")
+    imports.append(f"import {layout.dto_package}.*;")
+    imports.append(f"import {layout.input_package}.{entity_name}UseCase;")
+    imports.append(f"import {layout.web_mapper_package}.{entity_name}WebMapper;")
+    if needs_idempotency:
+        imports.append("import com.example.crud.configuration.IdempotencyService;")
+    imports.append("import io.swagger.v3.oas.annotations.tags.Tag;")
+    if needs_valid:
+        imports.append("import jakarta.validation.Valid;")
+    imports.append("import lombok.RequiredArgsConstructor;")
+    imports.append("import org.springframework.http.ResponseEntity;")
+    imports.append("import org.springframework.web.bind.annotation.*;")
+    if needs_uri:
+        imports.append("import org.springframework.web.servlet.support.ServletUriComponentsBuilder;")
+        imports.append("import java.net.URI;")
+    if needs_map:
+        imports.append("import java.util.Map;")
+
+    fields = [
+        f"    private final {entity_name}UseCase useCase;",
+        f"    private final {entity_name}WebMapper mapper;",
+    ]
+    if needs_idempotency:
+        fields.append("    private final IdempotencyService idempotencyService;")
+
+    imports_block = "\n".join(imports)
+    fields_block = "\n".join(fields)
+    methods_block = "\n".join(methods)
+
+    return f"""package {layout.controller_package};
+
+{imports_block}
+
+@RestController
+@RequestMapping("/api/{entity_lower}s")
+@RequiredArgsConstructor
+@Tag(name = "{entity_name}")
+public class {entity_name}Controller {{
+
+{fields_block}
+{methods_block}
 }}
 """
 
@@ -575,10 +612,15 @@ def get_controller_test(
     create_assignments,
     has_required_fields,
     invalid_assignments,
+    endpoints=None,
 ):
-    required_test = ""
-    if has_required_fields:
-        required_test = f"""
+    endpoints = set(endpoints) if endpoints else set(DEFAULT_ENDPOINTS)
+
+    tests = []
+    if "create" in endpoints:
+        required_test = ""
+        if has_required_fields:
+            required_test = f"""
     @Test
     void create_MissingRequiredInput_Returns400() throws Exception {{
         mockMvc.perform(post("/api/{entity_lower}s").with(csrf())
@@ -589,9 +631,9 @@ def get_controller_test(
         verifyNoInteractions(useCase);
     }}
 """
-    constraint_test = ""
-    if invalid_assignments:
-        constraint_test = f"""
+        constraint_test = ""
+        if invalid_assignments:
+            constraint_test = f"""
     @Test
     void create_InvalidValue_Returns400() throws Exception {{
         {entity_name}CreateDTO createDTO = new {entity_name}CreateDTO();
@@ -604,47 +646,7 @@ def get_controller_test(
         verifyNoInteractions(useCase);
     }}
 """
-
-    return f"""package {layout.controller_package};
-
-import {layout.domain_package}.{entity_name};
-import {layout.domain_package}.PageResult;
-import {layout.dto_package}.*;
-import {layout.input_package}.{entity_name}UseCase;
-import {layout.web_mapper_package}.{entity_name}WebMapper;
-import com.example.crud.configuration.IdempotencyService;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
-import org.springframework.http.MediaType;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.security.test.context.support.WithMockUser;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.math.BigDecimal;
-import java.util.List;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
-
-@WebMvcTest({entity_name}Controller.class)
-@WithMockUser(roles = "ADMIN")
-class {entity_name}ControllerTest {{
-    @Autowired
-    private MockMvc mockMvc;
-    @Autowired
-    private ObjectMapper objectMapper;
-    @MockBean
-    private {entity_name}UseCase useCase;
-    @MockBean
-    private {entity_name}WebMapper mapper;
-    @MockBean
-    private IdempotencyService idempotencyService;
-
+        tests.append(f"""
     @Test
     void create_ValidInput_Returns201() throws Exception {{
         {entity_name}CreateDTO createDTO = new {entity_name}CreateDTO();
@@ -663,17 +665,18 @@ class {entity_name}ControllerTest {{
                 .andExpect(status().isCreated())
                 .andExpect(header().string("Location", "http://localhost/api/{entity_lower}s/1"));
     }}
-{required_test}
-{constraint_test}
-
+{required_test}{constraint_test}""")
+    if "list" in endpoints:
+        tests.append(f"""
     @Test
     void findAll_WithFilterQueryParam_Returns200() throws Exception {{
         when(useCase.findAll(any())).thenReturn(new PageResult<>(List.of(), 0, 0, 0, 20));
 
         mockMvc.perform(get("/api/{entity_lower}s?page=0&size=5&estadoInventado=cualquier-valor"))
                 .andExpect(status().isOk());
-    }}
-
+    }}""")
+    if "patch" in endpoints:
+        tests.append(f"""
     @Test
     void patch_EmptyInput_Returns200() throws Exception {{
         {entity_name} domain = new {entity_name}();
@@ -685,6 +688,62 @@ class {entity_name}ControllerTest {{
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{{}}"))
                 .andExpect(status().isOk());
-    }}
+    }}""")
+
+    needs_idempotency = "create" in endpoints
+
+    imports = [
+        f"import {layout.domain_package}.{entity_name};",
+        f"import {layout.domain_package}.PageResult;",
+        f"import {layout.dto_package}.*;",
+        f"import {layout.input_package}.{entity_name}UseCase;",
+        f"import {layout.web_mapper_package}.{entity_name}WebMapper;",
+    ]
+    if needs_idempotency:
+        imports.append("import com.example.crud.configuration.IdempotencyService;")
+    imports.append("import com.fasterxml.jackson.databind.ObjectMapper;")
+    imports.append("import org.junit.jupiter.api.Test;")
+    imports.append("import org.springframework.beans.factory.annotation.Autowired;")
+    imports.append("import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;")
+    imports.append("import org.springframework.boot.test.mock.mockito.MockBean;")
+    imports.append("import org.springframework.http.MediaType;")
+    imports.append("import org.springframework.test.web.servlet.MockMvc;")
+    imports.append("import org.springframework.security.test.context.support.WithMockUser;")
+    imports.append("import java.time.LocalDate;")
+    imports.append("import java.time.LocalDateTime;")
+    imports.append("import java.math.BigDecimal;")
+    imports.append("import java.util.List;")
+    imports.append("import static org.mockito.ArgumentMatchers.any;")
+    imports.append("import static org.mockito.Mockito.*;")
+    imports.append("import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;")
+    imports.append("import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;")
+    imports.append("import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;")
+
+    fields = [
+        "    @Autowired",
+        "    private MockMvc mockMvc;",
+        "    @Autowired",
+        "    private ObjectMapper objectMapper;",
+        "    @MockBean",
+        f"    private {entity_name}UseCase useCase;",
+        "    @MockBean",
+        f"    private {entity_name}WebMapper mapper;",
+    ]
+    if needs_idempotency:
+        fields.extend(["    @MockBean", "    private IdempotencyService idempotencyService;"])
+
+    imports_block = "\n".join(imports)
+    fields_block = "\n".join(fields)
+    tests_block = "\n".join(tests)
+
+    return f"""package {layout.controller_package};
+
+{imports_block}
+
+@WebMvcTest({entity_name}Controller.class)
+@WithMockUser(roles = "ADMIN")
+class {entity_name}ControllerTest {{
+{fields_block}
+{tests_block}
 }}
 """

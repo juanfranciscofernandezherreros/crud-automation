@@ -1,5 +1,7 @@
 """Plantillas de los archivos del proyecto Spring Boot generado."""
 
+from .parsing import DEFAULT_ENDPOINTS
+
 
 def get_pom_xml(entity_lower):
     return f"""<?xml version="1.0" encoding="UTF-8"?>
@@ -419,34 +421,12 @@ public class {entity_name}ServiceImpl implements {entity_name}Service {{
 }}
 """
 
-def get_controller(entity_name, entity_lower):
-    return f"""package com.example.crud.controller;
+def get_controller(entity_name, entity_lower, endpoints=None):
+    endpoints = set(endpoints) if endpoints else set(DEFAULT_ENDPOINTS)
 
-import com.example.crud.dto.*;
-import com.example.crud.configuration.IdempotencyService;
-import com.example.crud.service.{entity_name}Service;
-import com.example.crud.specification.{entity_name}Specifications;
-import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.validation.Valid;
-import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
-import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
-import java.net.URI;
-import java.util.Map;
-
-@RestController
-@RequestMapping("/api/{entity_lower}s")
-@RequiredArgsConstructor
-@Tag(name = "{entity_name}", description = "API CRUD para {entity_name}")
-public class {entity_name}Controller {{
-
-    private final {entity_name}Service service;
-    private final IdempotencyService idempotencyService;
-
+    methods = []
+    if "create" in endpoints:
+        methods.append(f"""
     @PostMapping
     @Operation(summary = "Crear {entity_lower}")
     public ResponseEntity<{entity_name}ResponseDTO> create(
@@ -460,40 +440,95 @@ public class {entity_name}Controller {{
                 value -> value.getId());
         URI location = ServletUriComponentsBuilder.fromCurrentRequest().path("/{{id}}").buildAndExpand(created.getId()).toUri();
         return ResponseEntity.created(location).body(created);
-    }}
-
+    }}""")
+    if "list" in endpoints:
+        methods.append(f"""
     @GetMapping
     @Operation(summary = "Listar {entity_lower}s",
             description = "Admite filtros por igualdad usando cualquier campo de la entidad como query param")
     public ResponseEntity<Page<{entity_name}ResponseDTO>> findAll(
             Pageable pageable, @RequestParam Map<String, String> filters) {{
         return ResponseEntity.ok(service.findAll(pageable, {entity_name}Specifications.fromFilters(filters)));
-    }}
-
+    }}""")
+    if "get" in endpoints:
+        methods.append(f"""
     @GetMapping("/{{id}}")
     @Operation(summary = "Obtener por ID")
     public ResponseEntity<{entity_name}ResponseDTO> findById(@PathVariable Integer id) {{
         return ResponseEntity.ok(service.findById(id));
-    }}
-
+    }}""")
+    if "update" in endpoints:
+        methods.append(f"""
     @PutMapping("/{{id}}")
     @Operation(summary = "Actualización completa")
     public ResponseEntity<{entity_name}ResponseDTO> update(@PathVariable Integer id, @Valid @RequestBody {entity_name}UpdateDTO dto) {{
         return ResponseEntity.ok(service.update(id, dto));
-    }}
-
+    }}""")
+    if "patch" in endpoints:
+        methods.append(f"""
     @PatchMapping("/{{id}}")
     @Operation(summary = "Actualización parcial")
     public ResponseEntity<{entity_name}ResponseDTO> patch(@PathVariable Integer id, @Valid @RequestBody {entity_name}PatchDTO dto) {{
         return ResponseEntity.ok(service.patch(id, dto));
-    }}
-
+    }}""")
+    if "delete" in endpoints:
+        methods.append(f"""
     @DeleteMapping("/{{id}}")
     @Operation(summary = "Eliminar {entity_lower}")
     public ResponseEntity<Void> delete(@PathVariable Integer id) {{
         service.delete(id);
         return ResponseEntity.noContent().build();
-    }}
+    }}""")
+
+    needs_idempotency = "create" in endpoints
+    needs_valid = bool(endpoints & {"create", "update", "patch"})
+    needs_page = "list" in endpoints
+    needs_uri = "create" in endpoints
+    needs_map = "list" in endpoints
+    needs_specification = "list" in endpoints
+
+    imports = ["import com.example.crud.dto.*;"]
+    if needs_idempotency:
+        imports.append("import com.example.crud.configuration.IdempotencyService;")
+    imports.append(f"import com.example.crud.service.{entity_name}Service;")
+    if needs_specification:
+        imports.append(f"import com.example.crud.specification.{entity_name}Specifications;")
+    imports.append("import io.swagger.v3.oas.annotations.Operation;")
+    imports.append("import io.swagger.v3.oas.annotations.tags.Tag;")
+    if needs_valid:
+        imports.append("import jakarta.validation.Valid;")
+    imports.append("import lombok.RequiredArgsConstructor;")
+    if needs_page:
+        imports.append("import org.springframework.data.domain.Page;")
+        imports.append("import org.springframework.data.domain.Pageable;")
+    imports.append("import org.springframework.http.ResponseEntity;")
+    imports.append("import org.springframework.web.bind.annotation.*;")
+    if needs_uri:
+        imports.append("import org.springframework.web.servlet.support.ServletUriComponentsBuilder;")
+        imports.append("import java.net.URI;")
+    if needs_map:
+        imports.append("import java.util.Map;")
+
+    fields = [f"    private final {entity_name}Service service;"]
+    if needs_idempotency:
+        fields.append("    private final IdempotencyService idempotencyService;")
+
+    imports_block = "\n".join(imports)
+    fields_block = "\n".join(fields)
+    methods_block = "\n".join(methods)
+
+    return f"""package com.example.crud.controller;
+
+{imports_block}
+
+@RestController
+@RequestMapping("/api/{entity_lower}s")
+@RequiredArgsConstructor
+@Tag(name = "{entity_name}", description = "API CRUD para {entity_name}")
+public class {entity_name}Controller {{
+
+{fields_block}
+{methods_block}
 }}
 """
 
@@ -847,10 +882,15 @@ def get_controller_test(
     create_assignments,
     has_required_fields,
     invalid_assignments,
+    endpoints=None,
 ):
-    invalid_test = ""
-    if has_required_fields:
-        invalid_test = f"""
+    endpoints = set(endpoints) if endpoints else set(DEFAULT_ENDPOINTS)
+
+    tests = []
+    if "create" in endpoints:
+        invalid_test = ""
+        if has_required_fields:
+            invalid_test = f"""
     @Test
     void create_MissingRequiredInput_Returns400() throws Exception {{
         {entity_name}CreateDTO createDTO = new {entity_name}CreateDTO();
@@ -865,9 +905,9 @@ def get_controller_test(
     }}
 """
 
-    constraint_test = ""
-    if invalid_assignments:
-        constraint_test = f"""
+        constraint_test = ""
+        if invalid_assignments:
+            constraint_test = f"""
     @Test
     void create_InvalidValue_Returns400() throws Exception {{
         {entity_name}CreateDTO createDTO = new {entity_name}CreateDTO();
@@ -882,54 +922,7 @@ def get_controller_test(
         Mockito.verifyNoInteractions(service);
     }}
 """
-
-    return f"""package com.example.crud.controller;
-
-import com.example.crud.dto.{entity_name}CreateDTO;
-import com.example.crud.dto.{entity_name}PatchDTO;
-import com.example.crud.dto.{entity_name}ResponseDTO;
-import com.example.crud.configuration.IdempotencyService;
-import com.example.crud.service.{entity_name}Service;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
-import org.springframework.http.MediaType;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.security.test.context.support.WithMockUser;
-
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.math.BigDecimal;
-
-import org.springframework.data.domain.PageImpl;
-import java.util.List;
-
-import static org.mockito.ArgumentMatchers.any;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
-
-@WebMvcTest({entity_name}Controller.class)
-@WithMockUser(roles = "ADMIN")
-class {entity_name}ControllerTest {{
-
-    @Autowired
-    private MockMvc mockMvc;
-
-    @MockBean
-    private {entity_name}Service service;
-
-    @MockBean
-    private IdempotencyService idempotencyService;
-
-    @Autowired
-    private ObjectMapper objectMapper;
-
+        tests.append(f"""
     @Test
     void create_ValidInput_Returns201() throws Exception {{
         {entity_name}CreateDTO createDTO = new {entity_name}CreateDTO();
@@ -947,17 +940,18 @@ class {entity_name}ControllerTest {{
                 .andExpect(status().isCreated())
                 .andExpect(header().string("Location", "http://localhost/api/{entity_lower}s/1"));
     }}
-{invalid_test}
-{constraint_test}
-
+{invalid_test}{constraint_test}""")
+    if "list" in endpoints:
+        tests.append(f"""
     @Test
     void findAll_WithFilterQueryParam_Returns200() throws Exception {{
         Mockito.when(service.findAll(any(), any())).thenReturn(new PageImpl<>(List.of()));
 
         mockMvc.perform(get("/api/{entity_lower}s?page=0&size=5&estadoInventado=cualquier-valor"))
                 .andExpect(status().isOk());
-    }}
-
+    }}""")
+    if "patch" in endpoints:
+        tests.append(f"""
     @Test
     void patch_EmptyInput_Returns200() throws Exception {{
         {entity_name}ResponseDTO responseDTO = new {entity_name}ResponseDTO();
@@ -968,8 +962,9 @@ class {entity_name}ControllerTest {{
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{{}}"))
                 .andExpect(status().isOk());
-    }}
-
+    }}""")
+    if "get" in endpoints:
+        tests.append(f"""
     @Test
     void findById_ExistingId_Returns200() throws Exception {{
         {entity_name}ResponseDTO responseDTO = new {entity_name}ResponseDTO();
@@ -979,7 +974,75 @@ class {entity_name}ControllerTest {{
         mockMvc.perform(get("/api/{entity_lower}s/1")
                 .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk());
-    }}
+    }}""")
+
+    needs_idempotency = "create" in endpoints
+    needs_patch_dto = "patch" in endpoints
+    needs_page = "list" in endpoints
+    needs_get = bool({"list", "get"} & endpoints)
+
+    imports = []
+    if needs_idempotency:
+        imports.append(f"import com.example.crud.dto.{entity_name}CreateDTO;")
+    if needs_patch_dto:
+        imports.append(f"import com.example.crud.dto.{entity_name}PatchDTO;")
+    imports.append(f"import com.example.crud.dto.{entity_name}ResponseDTO;")
+    if needs_idempotency:
+        imports.append("import com.example.crud.configuration.IdempotencyService;")
+    imports.append(f"import com.example.crud.service.{entity_name}Service;")
+    imports.append("import com.fasterxml.jackson.databind.ObjectMapper;")
+    imports.append("import org.junit.jupiter.api.Test;")
+    imports.append("import org.mockito.Mockito;")
+    imports.append("import org.springframework.beans.factory.annotation.Autowired;")
+    imports.append("import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;")
+    imports.append("import org.springframework.boot.test.mock.mockito.MockBean;")
+    imports.append("import org.springframework.http.MediaType;")
+    imports.append("import org.springframework.test.web.servlet.MockMvc;")
+    imports.append("import org.springframework.security.test.context.support.WithMockUser;")
+    imports.append("")
+    imports.append("import java.time.LocalDate;")
+    imports.append("import java.time.LocalDateTime;")
+    imports.append("import java.math.BigDecimal;")
+    imports.append("")
+    if needs_page:
+        imports.append("import org.springframework.data.domain.PageImpl;")
+    imports.append("import java.util.List;")
+    imports.append("")
+    imports.append("import static org.mockito.ArgumentMatchers.any;")
+    if needs_get:
+        imports.append("import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;")
+    if needs_patch_dto:
+        imports.append("import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;")
+    if "create" in endpoints:
+        imports.append("import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;")
+    imports.append("import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;")
+    imports.append("import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;")
+
+    field_lines = [
+        "    @Autowired",
+        "    private MockMvc mockMvc;",
+        "",
+        "    @MockBean",
+        f"    private {entity_name}Service service;",
+    ]
+    if needs_idempotency:
+        field_lines.extend(["", "    @MockBean", "    private IdempotencyService idempotencyService;"])
+    field_lines.extend(["", "    @Autowired", "    private ObjectMapper objectMapper;"])
+
+    imports_block = "\n".join(imports)
+    fields_block = "\n".join(field_lines)
+    tests_block = "\n".join(tests)
+
+    return f"""package com.example.crud.controller;
+
+{imports_block}
+
+@WebMvcTest({entity_name}Controller.class)
+@WithMockUser(roles = "ADMIN")
+class {entity_name}ControllerTest {{
+
+{fields_block}
+{tests_block}
 }}
 """
 
