@@ -46,6 +46,50 @@ En hexagonal y clean, el servicio de aplicacion es Java puro: no contiene
 anotaciones ni tipos de Spring. Las transacciones quedan en el adaptador de
 persistencia y el wiring en `UseCaseConfiguration`.
 
+## Definicion por JSON
+
+Para esquemas grandes o generados por herramienta (muchos campos, o cuando el
+propio `default` necesita `:` o `,`) es mas comodo describir la entidad en un
+JSON en vez de en la cadena `nombre:tipo:regla`:
+
+```powershell
+python .\generate_crud.py --json .\fondoinversion.json --architecture hexagonal
+```
+
+```json
+{
+  "entity": "FondoInversion",
+  "architecture": "hexagonal",
+  "fields": [
+    {"name": "id", "type": "int"},
+    {"name": "isin", "type": "string", "max": 12, "not_blank": true, "unique": true, "index": true},
+    {"name": "patrimonio", "type": "decimal", "precision": 18, "scale": 2, "required": true, "positive": true},
+    {"name": "activo", "type": "boolean", "required": true, "default": true},
+    {"name": "fecha_valor", "type": "datetime", "default": "2026-01-31T10:30:00"},
+    {"name": "descripcion", "type": "text"}
+  ]
+}
+```
+
+Reglas:
+
+- `entity` es obligatorio. `architecture` es opcional (por defecto `layered`);
+  si tambien se pasa `--architecture` en la linea de comandos, la CLI gana.
+- Cada campo es un objeto con `name` y `type`, mas cualquiera de las reglas
+  del DSL de texto como clave: `required`, `not_blank`, `positive`, `unique`,
+  `index` (booleanos), `min`, `max`, `precision`, `scale` (numeros),
+  `composite_unique` (texto), `default` (cualquier tipo, ver abajo).
+- A diferencia del DSL de texto, los valores de `default` **no tienen
+  restriccion de caracteres**: pueden llevar `:` o `,` sin problema (por
+  ejemplo `"default": "2026-01-31T10:30:00"` con hora completa, o un texto
+  como `"default": "Madrid, España"`). Esto es posible porque el JSON nunca
+  se reconstruye como una cadena delimitada por `:`/`,` antes de parsearse —
+  se valida directamente sobre la estructura.
+- Claves desconocidas en un campo, o a nivel raiz del JSON, son un error
+  (mismo criterio "falla antes de escribir" que el DSL de texto).
+
+El `docs/index.html` generado muestra el comando `--json` reproducible.
+
 ## Campos y reglas
 
 El formato es `nombre:tipo[:regla]`, con campos separados por comas. Debe

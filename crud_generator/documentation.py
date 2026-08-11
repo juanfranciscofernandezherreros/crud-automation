@@ -123,7 +123,16 @@ def _field_rows(attrs):
     return "\n".join(rows)
 
 
+_JSON_SOURCE_PREFIX = "__JSON__:"
+
+
 def _command(entity_name, attrs_str, architecture):
+    if attrs_str.startswith(_JSON_SOURCE_PREFIX):
+        json_path = attrs_str[len(_JSON_SOURCE_PREFIX):]
+        return (
+            f'python .\\generate_crud.py --json "{json_path}" `\n'
+            f"  --architecture {architecture}"
+        )
     definitions = [part.strip() for part in attrs_str.split(",")]
     lines = [f'python .\\generate_crud.py {entity_name} `']
     for index, definition in enumerate(definitions):

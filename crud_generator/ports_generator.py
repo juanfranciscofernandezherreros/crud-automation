@@ -29,8 +29,12 @@ def java_path(java_root, package, filename):
 
 
 def generate_ports_project(entity_name, attrs_str, layout):
-    entity_lower = entity_name.lower()
     attrs = parse_attributes(attrs_str)
+    return generate_ports_project_from_attrs(entity_name, attrs, layout, attrs_str)
+
+
+def generate_ports_project_from_attrs(entity_name, attrs, layout, attrs_str):
+    entity_lower = entity_name.lower()
     base_dir = f"crud-{entity_lower}-{layout.name}"
     main_java = f"{base_dir}/src/main/java"
     test_java = f"{base_dir}/src/test/java"

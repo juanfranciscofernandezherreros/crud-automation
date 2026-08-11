@@ -86,18 +86,26 @@ def _validate_default_literal(value, type_name, name):
             ) from error
         return value
     if type_name == "datetime":
-        if not DATETIME_DEFAULT_PATTERN.fullmatch(value):
-            raise DefinitionError(
-                f"El valor por defecto de '{name}' debe tener formato "
-                "AAAA-MM-DD o AAAA-MM-DDTHHMMSS (sin ':', porque ':' separa reglas)."
-            )
+        if DATETIME_DEFAULT_PATTERN.fullmatch(value):
+            try:
+                datetime.fromisoformat(expand_datetime_default(value))
+            except ValueError as error:
+                raise DefinitionError(
+                    f"El valor por defecto de '{name}' no es una fecha/hora válida."
+                ) from error
+            return value
+        # El DSL de texto solo puede llegar aquí en formato compacto (arriba), porque
+        # ':' separa reglas en "nombre:tipo:regla". El JSON no tiene esa restricción,
+        # así que también se acepta un ISO 8601 normal y se normaliza al formato
+        # compacto que ya usan expand_datetime_default() y la generación SQL/Java.
         try:
-            datetime.fromisoformat(expand_datetime_default(value))
+            parsed = datetime.fromisoformat(value)
         except ValueError as error:
             raise DefinitionError(
-                f"El valor por defecto de '{name}' no es una fecha/hora válida."
+                f"El valor por defecto de '{name}' debe tener formato AAAA-MM-DD, "
+                "AAAA-MM-DDTHH:MM[:SS] (JSON) o AAAA-MM-DDTHHMMSS sin ':' (DSL de texto)."
             ) from error
-        return value
+        return parsed.strftime("%Y-%m-%dT%H%M%S")
     raise DefinitionError(f"'default' no es compatible con '{type_name}'.")
 
 
@@ -181,6 +189,13 @@ def parse_validations(raw_validations, name, type_name):
             raise DefinitionError("'positive' solo se puede aplicar a números.")
         validations[validation] = True
 
+    _apply_coherence_checks(validations, type_name, name)
+    return validations
+
+
+def _apply_coherence_checks(validations, type_name, name):
+    """Reglas que dependen de varias validaciones a la vez. Compartido por el DSL de
+    texto (parse_validations) y el de JSON (_build_validations_from_field)."""
     if "min" in validations and "max" in validations:
         if Decimal(validations["min"]) > Decimal(validations["max"]):
             raise DefinitionError(f"El mínimo de '{name}' no puede superar su máximo.")
@@ -231,7 +246,6 @@ def parse_validations(raw_validations, name, type_name):
             raise DefinitionError(
                 f"'scale' de '{name}' debe estar entre 0 y su precisión ({precision})."
             )
-    return validations
 
 
 def parse_attributes(attrs_str):
@@ -268,35 +282,45 @@ def parse_attributes(attrs_str):
             )
 
         validations = parse_validations(parts[2:], name, type_name)
-        precision = validations.pop("precision", None)
-        scale = validations.pop("scale", None)
-        is_audit = name in AUDIT_FIELD_NAMES
-        if validations and (name == "id" or is_audit):
-            raise DefinitionError(
-                f"El atributo gestionado '{name}' no admite validaciones de entrada."
-            )
-
-        sql_type = SQL_TYPES[type_name]
-        if precision is not None:
-            sql_type = f"DECIMAL({precision}, {scale})"
-
         seen_names.add(name)
-        attrs.append(
-            {
-                "name": name,
-                "camel_name": to_camel_case(name),
-                "java_type": JAVA_TYPES[type_name],
-                "sql_type": sql_type,
-                "type": type_name,
-                "precision": int(precision) if precision is not None else None,
-                "scale": int(scale) if scale is not None else None,
-                "validations": validations,
-                "is_id": name.lower() == "id",
-                "is_date": type_name in ["datetime", "date"],
-                "is_audit": is_audit,
-            }
+        attrs.append(_finalize_attribute(name, type_name, validations))
+
+    _validate_attrs(attrs)
+    return attrs
+
+
+def _finalize_attribute(name, type_name, validations):
+    """Construye el dict de atributo final a partir de nombre/tipo/reglas ya validadas.
+    Usado tanto por el DSL de texto (parse_attributes) como por JSON
+    (parse_attributes_from_fields)."""
+    precision = validations.pop("precision", None)
+    scale = validations.pop("scale", None)
+    is_audit = name in AUDIT_FIELD_NAMES
+    if validations and (name == "id" or is_audit):
+        raise DefinitionError(
+            f"El atributo gestionado '{name}' no admite validaciones de entrada."
         )
 
+    sql_type = SQL_TYPES[type_name]
+    if precision is not None:
+        sql_type = f"DECIMAL({precision}, {scale})"
+
+    return {
+        "name": name,
+        "camel_name": to_camel_case(name),
+        "java_type": JAVA_TYPES[type_name],
+        "sql_type": sql_type,
+        "type": type_name,
+        "precision": int(precision) if precision is not None else None,
+        "scale": int(scale) if scale is not None else None,
+        "validations": validations,
+        "is_id": name.lower() == "id",
+        "is_date": type_name in ["datetime", "date"],
+        "is_audit": is_audit,
+    }
+
+
+def _validate_attrs(attrs):
     id_count = sum(attr["is_id"] for attr in attrs)
     if id_count == 0:
         raise DefinitionError("La definición debe incluir un atributo 'id'.")
@@ -305,6 +329,137 @@ def parse_attributes(attrs_str):
 
     _validate_composite_unique_groups(attrs)
 
+
+# ---------------------------------------------------------------------------
+# Definición de entidad vía JSON: mismo modelo de atributos, sin las
+# restricciones de caracteres del DSL de texto ('default' puede llevar ':' o ',').
+# ---------------------------------------------------------------------------
+
+_JSON_FLAG_KEYS = ("required", "not_blank", "positive", "unique", "index")
+_JSON_NUMERIC_RULE_KEYS = ("min", "max")
+_JSON_KNOWN_KEYS = {
+    "name",
+    "type",
+    *_JSON_FLAG_KEYS,
+    *_JSON_NUMERIC_RULE_KEYS,
+    "default",
+    "precision",
+    "scale",
+    "composite_unique",
+}
+
+
+def _build_validations_from_field(field, name, type_name):
+    validations = {}
+
+    for key in _JSON_FLAG_KEYS:
+        if not field.get(key):
+            continue
+        if key == "not_blank" and type_name not in STRING_LIKE_TYPES:
+            raise DefinitionError(
+                f"'not_blank' solo se puede aplicar a strings o text ('{name}')."
+            )
+        if key == "positive" and type_name not in NUMERIC_TYPES:
+            raise DefinitionError(f"'positive' solo se puede aplicar a números ('{name}').")
+        validations[key] = True
+
+    for key in _JSON_NUMERIC_RULE_KEYS:
+        if key not in field:
+            continue
+        raw_value = field[key]
+        try:
+            numeric_value = Decimal(str(raw_value))
+        except InvalidOperation as error:
+            raise DefinitionError(
+                f"El valor de '{key}' en '{name}' debe ser numérico."
+            ) from error
+        if not numeric_value.is_finite():
+            raise DefinitionError(f"El valor de '{key}' en '{name}' debe ser finito.")
+        if type_name in STRING_LIKE_TYPES and numeric_value != int(numeric_value):
+            raise DefinitionError(
+                f"El límite '{key}' de un {type_name} debe ser un entero ('{name}')."
+            )
+        if type_name in STRING_LIKE_TYPES and numeric_value < 0:
+            raise DefinitionError(
+                f"El límite '{key}' de un {type_name} no puede ser negativo ('{name}')."
+            )
+        if type_name not in NUMERIC_TYPES | STRING_LIKE_TYPES:
+            raise DefinitionError(
+                f"La validación '{key}' no es compatible con '{type_name}' ('{name}')."
+            )
+        validations[key] = str(raw_value)
+
+    if "precision" in field or "scale" in field:
+        if type_name != "decimal":
+            raise DefinitionError(
+                f"'precision'/'scale' solo se pueden aplicar a 'decimal', "
+                f"no a '{type_name}' ('{name}')."
+            )
+        if ("precision" in field) != ("scale" in field):
+            raise DefinitionError(
+                f"'{name}' debe indicar 'precision' y 'scale' juntos, o ninguno."
+            )
+        validations["precision"] = str(field["precision"])
+        validations["scale"] = str(field["scale"])
+
+    if "composite_unique" in field:
+        group = field["composite_unique"]
+        if not isinstance(group, str) or not GROUP_NAME_PATTERN.fullmatch(group.lower()):
+            raise DefinitionError(
+                f"El grupo '{group}' de '{name}' debe usar lower_snake_case."
+            )
+        validations["composite_unique"] = group.lower()
+
+    if "default" in field:
+        validations["default"] = _validate_default_literal(
+            str(field["default"]), type_name, name
+        )
+
+    _apply_coherence_checks(validations, type_name, name)
+    return validations
+
+
+def parse_attributes_from_fields(field_specs):
+    """Igual que parse_attributes(), pero a partir de una lista de dicts (JSON) en
+    vez de la cadena 'nombre:tipo:regla,...'. No hay restricción de caracteres en
+    los valores porque nunca se reconstruyen como texto delimitado por ':'/','."""
+    if not field_specs:
+        raise DefinitionError("Debes indicar al menos un campo.")
+
+    attrs = []
+    seen_names = set()
+    for position, field in enumerate(field_specs, start=1):
+        if not isinstance(field, dict):
+            raise DefinitionError(f"El campo {position} debe ser un objeto JSON.")
+
+        name = field.get("name")
+        if not isinstance(name, str) or not ATTRIBUTE_NAME_PATTERN.fullmatch(name):
+            raise DefinitionError(
+                f"Nombre de atributo no válido en el campo {position}: '{name}'. "
+                "Usa lower_snake_case."
+            )
+        if name in seen_names:
+            raise DefinitionError(f"El atributo '{name}' está duplicado.")
+
+        type_name = field.get("type")
+        if type_name not in JAVA_TYPES:
+            accepted_types = ", ".join(JAVA_TYPES)
+            raise DefinitionError(
+                f"Tipo desconocido '{type_name}' para '{name}'. "
+                f"Tipos admitidos: {accepted_types}."
+            )
+
+        unknown_keys = set(field) - _JSON_KNOWN_KEYS
+        if unknown_keys:
+            raise DefinitionError(
+                f"Claves desconocidas en '{name}': {', '.join(sorted(unknown_keys))}."
+            )
+
+        validations = _build_validations_from_field(field, name, type_name)
+        seen_names.add(name)
+        attrs.append(_finalize_attribute(name, type_name, validations))
+
+    _validate_attrs(attrs)
     return attrs
 
 

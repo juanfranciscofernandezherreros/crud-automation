@@ -1,0 +1,31 @@
+{
+  "entity": "FondoInversion",
+  "architecture": "hexagonal",
+  "fields": [
+    {"name": "id", "type": "int"},
+    {"name": "isin", "type": "string", "max": 12, "not_blank": true, "unique": true, "index": true},
+    {"name": "nombre", "type": "string", "max": 150, "not_blank": true},
+    {"name": "gestora", "type": "string", "max": 150, "not_blank": true, "index": true},
+    {"name": "categoria", "type": "string", "max": 60, "not_blank": true, "index": true},
+    {"name": "divisa", "type": "string", "max": 3, "not_blank": true},
+    {"name": "clase_accion", "type": "string", "max": 30, "not_blank": true},
+    {"name": "patrimonio", "type": "decimal", "precision": 18, "scale": 2, "required": true, "positive": true},
+    {"name": "valor_liquidativo", "type": "decimal", "precision": 12, "scale": 6, "required": true, "positive": true},
+    {"name": "comision_gestion", "type": "decimal", "precision": 5, "scale": 2, "required": true, "min": 0, "max": 100},
+    {"name": "comision_deposito", "type": "decimal", "precision": 5, "scale": 2, "min": 0, "max": 100},
+    {"name": "rentabilidad_ytd", "type": "decimal", "precision": 7, "scale": 4},
+    {"name": "rentabilidad_1a", "type": "decimal", "precision": 7, "scale": 4},
+    {"name": "volatilidad_3a", "type": "decimal", "precision": 6, "scale": 4},
+    {"name": "riesgo_sri", "type": "int", "required": true, "min": 1, "max": 7},
+    {"name": "fecha_constitucion", "type": "date", "required": true},
+    {"name": "fecha_ultima_valoracion", "type": "datetime"},
+    {"name": "activo", "type": "boolean", "required": true, "default": true},
+    {"name": "sostenible", "type": "boolean", "default": false},
+    {"name": "domicilio", "type": "string", "max": 2, "not_blank": true},
+    {"name": "benchmark", "type": "string", "max": 150},
+    {"name": "patrimonio_minimo_inicial", "type": "decimal", "precision": 12, "scale": 2, "positive": true},
+    {"name": "reembolso_minimo", "type": "decimal", "precision": 12, "scale": 2, "positive": true},
+    {"name": "liquidez_diaria", "type": "boolean", "default": true},
+    {"name": "descripcion", "type": "text"}
+  ]
+}

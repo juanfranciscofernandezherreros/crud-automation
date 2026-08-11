@@ -3,7 +3,7 @@
 import sys
 
 from .architectures import ARCHITECTURES, normalize_architecture
-from .generator import generate_project
+from .generator import generate_project, generate_project_from_json
 from .parsing import DefinitionError, normalize_entity_name
 
 
@@ -36,16 +36,48 @@ def extract_architecture(args):
     return args, architecture
 
 
+def extract_json_path(args):
+    args = list(args)
+    json_path = None
+    for option in ("--json", "-j"):
+        if option in args:
+            index = args.index(option)
+            if index + 1 >= len(args):
+                raise DefinitionError(f"Falta el valor de {option}.")
+            json_path = args[index + 1]
+            del args[index : index + 2]
+            break
+    return args, json_path
+
+
 def main(args=None):
     args = sys.argv[1:] if args is None else args
     try:
         args, architecture = extract_architecture(args)
+        args, json_path = extract_json_path(args)
     except DefinitionError as error:
         print(f"Error: {error}", file=sys.stderr)
         return 2
+
+    if json_path:
+        try:
+            base_dir = generate_project_from_json(json_path, architecture)
+        except DefinitionError as error:
+            print(f"Error: {error}", file=sys.stderr)
+            return 2
+        print(
+            f"Proyecto {base_dir} generado con éxito, "
+            "incluyendo todas las capas, tests y docs/index.html."
+        )
+        return 0
+
     if len(args) < 2:
         print(
             "Uso: python generate_crud.py <Entidad> <attr:tipo,...> "
+            "[--architecture layered|hexagonal|clean]"
+        )
+        print(
+            "  o: python generate_crud.py --json <definicion.json> "
             "[--architecture layered|hexagonal|clean]"
         )
         print(

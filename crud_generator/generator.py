@@ -31,9 +31,32 @@ def generate_project(entity_name, attrs_str, architecture="layered"):
     return generate_layered_project(entity_name, attrs_str)
 
 
+def generate_project_from_json(json_path, architecture_override=None):
+    """Igual que generate_project(), pero leyendo entidad y campos de un JSON."""
+    from .json_schema import load_schema
+
+    entity_name, architecture_from_json, attrs = load_schema(json_path)
+    entity_name = normalize_entity_name(entity_name)
+    architecture = normalize_architecture(
+        architecture_override or architecture_from_json or "layered"
+    )
+    command_hint = f"__JSON__:{json_path}"
+    if architecture in PORTS_ARCHITECTURES:
+        from .ports_generator import generate_ports_project_from_attrs
+
+        return generate_ports_project_from_attrs(
+            entity_name, attrs, PORTS_ARCHITECTURES[architecture], command_hint
+        )
+    return generate_layered_project_from_attrs(entity_name, attrs, command_hint)
+
+
 def generate_layered_project(entity_name, attrs_str):
-    entity_lower = entity_name.lower()
     attrs = parse_attributes(attrs_str)
+    return generate_layered_project_from_attrs(entity_name, attrs, attrs_str)
+
+
+def generate_layered_project_from_attrs(entity_name, attrs, attrs_str):
+    entity_lower = entity_name.lower()
     base_dir = f"crud-{entity_lower}"
     java_base = f"{base_dir}/src/main/java/com/example/crud"
     res_base = f"{base_dir}/src/main/resources"
