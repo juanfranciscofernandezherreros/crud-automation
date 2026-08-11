@@ -1,7 +1,10 @@
 """Plantillas para arquitecturas basadas en dominio, puertos y adaptadores."""
 
 
-def get_domain(entity_name, package, fields):
+def get_domain(entity_name, package, fields, include_all_args_builder=True):
+    constructor_annotations = (
+        "@AllArgsConstructor\n@Builder\n" if include_all_args_builder else ""
+    )
     return f"""package {package};
 
 import lombok.*;
@@ -11,9 +14,7 @@ import java.math.BigDecimal;
 
 @Data
 @NoArgsConstructor
-@AllArgsConstructor
-@Builder
-public class {entity_name} {{
+{constructor_annotations}public class {entity_name} {{
 {fields}
 }}
 """
@@ -76,11 +77,15 @@ def get_persistence_entity(
     fields,
     unique_constraints_annotation="",
     dynamic_insert=False,
+    include_all_args_builder=True,
 ):
     dynamic_insert_import = (
         "\nimport org.hibernate.annotations.DynamicInsert;" if dynamic_insert else ""
     )
     dynamic_insert_annotation = "\n@DynamicInsert" if dynamic_insert else ""
+    constructor_annotations = (
+        "@AllArgsConstructor\n@Builder\n" if include_all_args_builder else ""
+    )
     return f"""package {package};
 
 import jakarta.persistence.*;
@@ -97,9 +102,7 @@ import java.math.BigDecimal;
 @Getter
 @Setter
 @NoArgsConstructor
-@AllArgsConstructor
-@Builder
-@EntityListeners(AuditingEntityListener.class)
+{constructor_annotations}@EntityListeners(AuditingEntityListener.class)
 public class {entity_name}JpaEntity {{
 {fields}
 }}

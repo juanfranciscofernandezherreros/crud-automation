@@ -213,11 +213,15 @@ def get_entity(
     entity_fields,
     unique_constraints_annotation="",
     dynamic_insert=False,
+    include_all_args_builder=True,
 ):
     dynamic_insert_import = (
         "\nimport org.hibernate.annotations.DynamicInsert;" if dynamic_insert else ""
     )
     dynamic_insert_annotation = "\n@DynamicInsert" if dynamic_insert else ""
+    constructor_annotations = (
+        "@AllArgsConstructor\n@Builder\n" if include_all_args_builder else ""
+    )
     return f"""package com.example.crud.entity;
 
 import jakarta.persistence.*;
@@ -235,9 +239,7 @@ import java.math.BigDecimal;
 @Getter
 @Setter
 @NoArgsConstructor
-@AllArgsConstructor
-@Builder
-@EntityListeners(AuditingEntityListener.class)
+{constructor_annotations}@EntityListeners(AuditingEntityListener.class)
 public class {entity_name} {{
 {entity_fields}
 }}

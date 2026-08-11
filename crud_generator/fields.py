@@ -19,6 +19,16 @@ def has_default(attrs):
     return any("default" in attr["validations"] for attr in attrs)
 
 
+# La JVM limita un constructor a 255 argumentos, incluida la referencia implicita
+# al objeto en construccion (JLS 8.4.1 / JVMS 4.11). Con 'version' incluido, un
+# @AllArgsConstructor + @Builder deja de compilar a partir de ahi.
+JVM_CONSTRUCTOR_PARAM_LIMIT = 254
+
+
+def exceeds_constructor_param_limit(attrs):
+    return len(attrs) + 1 > JVM_CONSTRUCTOR_PARAM_LIMIT
+
+
 def format_default_sql_literal(attr):
     type_name = attr["type"]
     value = attr["validations"]["default"]

@@ -2,6 +2,7 @@
 
 from .architectures import PORTS_ARCHITECTURES, normalize_architecture
 from .fields import (
+    exceeds_constructor_param_limit,
     generate_dto_fields,
     generate_entity_fields,
     generate_invalid_test_dto_assignments,
@@ -98,6 +99,7 @@ def generate_layered_project(entity_name, attrs_str):
             entity_fields,
             generate_table_unique_constraints_annotation(attrs),
             has_default(attrs),
+            not exceeds_constructor_param_limit(attrs),
         ),
     )
     write_file(

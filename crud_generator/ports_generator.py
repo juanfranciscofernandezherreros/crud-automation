@@ -2,6 +2,7 @@
 
 from . import documentation, ports_templates, templates
 from .fields import (
+    exceeds_constructor_param_limit,
     generate_domain_update_statements,
     generate_dto_fields,
     generate_entity_fields,
@@ -95,10 +96,14 @@ def generate_ports_project(entity_name, attrs_str, layout):
         templates.IDEMPOTENCY_SERVICE,
     )
 
+    include_all_args_builder = not exceeds_constructor_param_limit(attrs)
     write_file(
         java_path(main_java, layout.domain_package, f"{entity_name}.java"),
         ports_templates.get_domain(
-            entity_name, layout.domain_package, generate_plain_fields(attrs)
+            entity_name,
+            layout.domain_package,
+            generate_plain_fields(attrs),
+            include_all_args_builder,
         ),
     )
     write_file(
@@ -182,6 +187,7 @@ def generate_ports_project(entity_name, attrs_str, layout):
                 generate_entity_fields(attrs),
                 generate_table_unique_constraints_annotation(attrs),
                 has_default(attrs),
+                include_all_args_builder,
             ),
         (layout.persistence_package, f"{entity_name}PersistenceMapper.java"):
             ports_templates.get_persistence_mapper(entity_name, layout),
