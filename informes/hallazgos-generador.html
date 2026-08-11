@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hallazgos y mejoras | crud-automation</title>
+<style>
+  :root{--ink:#17211c;--muted:#58645e;--paper:#f7f8f5;--surface:#fff;--line:#d9dfda;
+        --green:#176b4b;--green-dark:#0f4934;--amber:#b66b13;--danger:#a33a32;--code-bg:#111915;}
+  *{box-sizing:border-box}
+  body{margin:0;color:var(--ink);background:var(--paper);font-family:Inter,ui-sans-serif,system-ui,"Segoe UI",sans-serif;line-height:1.6}
+  header{padding:36px max(24px,calc((100vw - 900px)/2));color:#fff;background:var(--ink);border-bottom:3px solid var(--amber)}
+  header a{color:#e7eee9;text-decoration:none;font-size:14px}
+  h1{margin:10px 0 6px;font-size:32px}
+  header p{margin:0;color:#cfd9d2;max-width:720px}
+  main{width:min(900px,calc(100% - 48px));margin:0 auto;padding:40px 0 80px}
+  section{margin-bottom:44px;padding-bottom:36px;border-bottom:1px solid var(--line)}
+  section:last-child{border-bottom:0}
+  .eyebrow{display:inline-block;margin-bottom:8px;color:var(--green-dark);font:700 12px/1.2 "Cascadia Code",Consolas,monospace;text-transform:uppercase}
+  h2{margin:0 0 10px;font-size:24px}
+  h3{margin:22px 0 8px;font-size:16px;color:var(--green-dark)}
+  p{margin:0 0 12px;color:#2c352f}
+  .lead{color:var(--muted);font-size:16px;max-width:760px}
+  table{width:100%;border-collapse:collapse;margin:14px 0;background:var(--surface);border:1px solid var(--line);font-size:14px}
+  th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:var(--green-dark);color:#fff;font-size:12px;text-transform:uppercase}
+  tr:last-child td{border-bottom:0}
+  code{font-family:"Cascadia Code",Consolas,monospace;background:#eef2ef;color:var(--green-dark);padding:1px 5px;border-radius:3px;font-size:.92em}
+  pre{overflow-x:auto;margin:12px 0;padding:16px 18px;color:#e8eee9;background:var(--code-bg);border:1px solid #2e3933;border-radius:6px;font:13px/1.6 "Cascadia Code",Consolas,monospace;white-space:pre}
+  .callout{margin:16px 0;padding:14px 16px;background:#edf6f1;border-left:4px solid var(--green);border-radius:0 6px 6px 0;font-size:14px}
+  .callout.warn{background:#fff7e9;border-color:var(--amber)}
+  .callout.danger{background:#fbe9e7;border-color:var(--danger)}
+  .badge{display:inline-block;padding:2px 9px;border-radius:20px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;background:#e3f2ea;color:var(--green-dark);margin-left:8px;vertical-align:middle}
+  .badge.fix{background:#fbe9e7;color:var(--danger)}
+  footer{padding:24px;color:#cad5ce;background:var(--ink);text-align:center;font-size:12.5px}
+</style>
+</head>
+<body>
+<header>
+  <a href="index.html">&larr; Informes crud-automation</a>
+  <h1>Hallazgos y mejoras del generador</h1>
+  <p class="lead">Qué apareció al usar el generador CRUD contra un esquema real de más de 270 columnas (un mensaje de reporte tipo EMIR/SFTR), y cómo se corrigió cada limitación en <code>crud_generator/</code>.</p>
+</header>
+<main>
+
+  <section>
+    <span class="eyebrow">Contexto</span>
+    <h2>El caso de prueba: 273 campos reales</h2>
+    <p>El generador se había probado siempre con entidades de ejemplo pequeñas (3 a 10 campos: <code>Producto</code>, <code>OperacionFinanciera</code>, <code>FondoInversion</code>...). Al pedirle que reprodujera un esquema real de reporting regulatorio con 273 columnas — tipos <code>string</code>, <code>timestamp</code>, <code>int</code> y <code>decimal(p,s)</code> con precisión variable, dos columnas como clave primaria compuesta, y un par de columnas con valor por defecto — aparecieron cuatro limitaciones de expresividad y, al generar el proyecto completo, un error de compilación real que ningún caso de prueba anterior había disparado.</p>
+  </section>
+
+  <section>
+    <span class="eyebrow">Hallazgo 1 · Precisión y escala fijas</span>
+    <h2>Todos los <code>decimal</code> se generaban como <code>DECIMAL(19,4)</code><span class="badge">mejora</span></h2>
+    <p>El esquema original define columnas como <code>decimal(38,19)</code> o <code>decimal(31,13)</code>, pero el generador solo conocía un <code>decimal</code> genérico mapeado siempre a <code>DECIMAL(19,4)</code> / <code>BigDecimal</code>. Cualquier valor con más de 4 decimales se habría truncado al insertarse en PostgreSQL.</p>
+    <h3>Mejora</h3>
+    <p>Nuevas reglas <code>precision=N:scale=N</code> (solo válidas junto a <code>decimal</code>, y siempre en pareja) que generan el tipo SQL exacto:</p>
+    <pre>importe:decimal:precision=31:scale=13
+&#8594; DECIMAL(31, 13)  en Flyway y BigDecimal en Java</pre>
+  </section>
+
+  <section>
+    <span class="eyebrow">Hallazgo 2 · Sin tipo texto libre</span>
+    <h2>Todo <code>string</code> era <code>VARCHAR(255)</code><span class="badge">mejora</span></h2>
+    <p>La columna <code>json_data</code> del esquema guarda JSON de longitud variable. Como único tipo de texto disponible era <code>string</code> (<code>VARCHAR(255)</code> salvo que se indicara <code>max=N</code>), la única forma de acomodarlo era un límite arbitrario (p. ej. <code>max=10000</code>) que sigue sin ser un límite real.</p>
+    <h3>Mejora</h3>
+    <p>Nuevo tipo <code>text</code> &#8594; columna <code>TEXT</code> de PostgreSQL sin límite de longitud. Las reglas <code>min=</code>/<code>max=</code> siguen funcionando, pero se validan con <code>CHECK char_length(...)</code> en vez de acortar el tipo de columna.</p>
+    <pre>json_data:text:not_blank
+&#8594; json_data TEXT NOT NULL CHECK (btrim(json_data) &lt;&gt; '')</pre>
+  </section>
+
+  <section>
+    <span class="eyebrow">Hallazgo 3 · Sin valores por defecto</span>
+    <h2>Los <code>default_value</code> del esquema se perdían<span class="badge">mejora</span></h2>
+    <p>Dos columnas del esquema (<code>lstusr</code> y <code>islegacy</code>) tienen un valor por defecto real (<code>'usr'</code> y <code>'false'</code>). El generador no tenía ningún concepto de "default"; la única opción era omitirlo y dejar que la aplicación fallara al no recibir ese campo, o marcarlo como obligatorio en el DTO (forzando al cliente HTTP a enviarlo siempre, que es justo lo contrario de lo que significa un default).</p>
+    <h3>Mejora</h3>
+    <p>Nueva regla <code>default=valor</code>. Genera tres cosas a la vez, y aquí apareció un matiz no evidente: no basta con poner <code>DEFAULT 'usr'</code> en la migración Flyway, porque Hibernate por defecto incluye <em>todas</em> las columnas en el <code>INSERT</code> — si el DTO llega con ese campo en <code>null</code>, Hibernate inserta <code>NULL</code> explícito y el <code>DEFAULT</code> de PostgreSQL nunca llega a aplicarse.</p>
+    <table>
+      <thead><tr><th>Capa</th><th>Qué genera</th></tr></thead>
+      <tbody>
+        <tr><td>Java (entidad)</td><td><code>private String lstusr = "usr";</code> — valor de partida si se construye directamente.</td></tr>
+        <tr><td>Flyway (SQL)</td><td><code>lstusr VARCHAR(255) NOT NULL DEFAULT 'usr'</code></td></tr>
+        <tr><td>Entidad JPA</td><td><code>@DynamicInsert</code> — Hibernate omite del <code>INSERT</code> las columnas que lleguen en <code>null</code>, dejando que el <code>DEFAULT</code> de PostgreSQL se aplique de verdad.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <span class="eyebrow">Hallazgo 4 · Sin clave compuesta</span>
+    <h2><code>refitid</code> + <code>refitidctrl</code> son la clave primaria real del esquema<span class="badge">mejora</span></h2>
+    <p>El generador solo entiende un <code>id</code> autonumérico simple (<code>SERIAL PRIMARY KEY</code> vía <code>@GeneratedValue(IDENTITY)</code>), como cualquier CRUD JPA estándar. El esquema real usa dos columnas como clave (<code>primary_key: true</code> en ambas). Marcarlas como <code>unique</code> por separado no es equivalente: permite que el par <code>(refitid, refitidctrl)</code> se repita combinando valores ya usados individualmente en otra fila.</p>
+    <h3>Mejora</h3>
+    <p>Nueva regla <code>composite_unique=grupo</code>: los campos que comparten el mismo nombre de grupo generan una única restricción <code>UNIQUE</code> multi-columna, tanto en Flyway como en <code>@Table(uniqueConstraints = ...)</code> de la entidad JPA.</p>
+    <pre>refitid:string:not_blank:composite_unique=refit_key
+refitidctrl:string:not_blank:composite_unique=refit_key
+
+&#8594; CONSTRAINT uq_reportederivados_refit_key UNIQUE (refitid, refitidctrl)</pre>
+    <div class="callout warn">
+      <strong>Límite que queda:</strong> <code>refitid</code>+<code>refitidctrl</code> no pueden ser la <em>clave primaria</em> real de la tabla — JPA/Hibernate solo soporta eso con <code>@EmbeddedId</code>, un patrón distinto al que usa todo este generador. Se mantiene el <code>id</code> autonumérico técnico y la pareja queda como restricción de negocio (<code>UNIQUE</code> compuesta) adicional. Es una limitación conocida, no un bug.
+    </div>
+  </section>
+
+  <section>
+    <span class="eyebrow">Hallazgo 5 · Bug real de compilación</span>
+    <h2>Límite de 255 parámetros de constructor de la JVM<span class="badge fix">fix</span></h2>
+    <p>Con las cuatro mejoras anteriores aplicadas, el proyecto de 273 campos se generó pero <strong>no compilaba</strong>:</p>
+    <pre>[ERROR] COMPILATION ERROR :
+[ERROR] .../entity/ReporteDerivado.java:[23,1] too many parameters</pre>
+    <p>Causa: la entidad usa <code>@Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder</code> de Lombok. <code>@AllArgsConstructor</code> genera un constructor con un parámetro por campo — 273 campos de negocio + <code>id</code> + <code>version</code> = <strong>275 parámetros</strong>. La especificación de la JVM (JVMS §4.11) limita cualquier método o constructor a 255 parámetros, contando la referencia implícita al objeto (<code>this</code>). <code>javac</code> rechaza la clase antes incluso de llegar a ejecutarse nada.</p>
+    <p>Ningún caso de prueba anterior lo había disparado porque ninguna entidad de ejemplo se había acercado nunca a 250 campos.</p>
+    <h3>Corrección</h3>
+    <p><code>crud_generator/fields.py</code> añade <code>exceeds_constructor_param_limit(attrs)</code> (umbral 254, dejando margen para <code>id</code>+<code>version</code>). <code>generator.py</code> y <code>ports_generator.py</code> la consultan antes de renderizar la entidad; si se supera, <code>templates.py</code> / <code>ports_templates.py</code> omiten <code>@AllArgsConstructor</code> y <code>@Builder</code> —queda <code>@NoArgsConstructor</code> + <code>@Getter</code>/<code>@Setter</code>, que es todo lo que JPA necesita y todo lo que MapStruct necesita para mapear DTO&#8594;entidad por setters cuando no hay builder disponible.</p>
+    <table>
+      <thead><tr><th>Entidad</th><th>Campos + version</th><th><code>@AllArgsConstructor</code> / <code>@Builder</code></th></tr></thead>
+      <tbody>
+        <tr><td><code>Producto</code> (ejemplo típico)</td><td>3</td><td>Se incluyen (muy por debajo del límite)</td></tr>
+        <tr><td><code>ReporteDerivado</code> (este caso)</td><td>275</td><td>Se omiten automáticamente</td></tr>
+      </tbody>
+    </table>
+    <p>Verificado generando y compilando (<code>mvn -DskipTests compile</code>) el proyecto de 273 campos, y con <code>tests/test_templates.py</code> cubriendo ambos casos (entidad normal vs. entidad ancha) para que no vuelva a pasar desapercibido.</p>
+  </section>
+
+  <section>
+    <span class="eyebrow">Resultado</span>
+    <h2>Estado final verificado</h2>
+    <p><code>python -m pytest -q</code> &#8594; 48 tests en verde, incluyendo <code>mvn verify</code> real sobre los cuatro proyectos de aceptación (uno de ellos ejercitando <code>composite_unique</code>, <code>default</code>, <code>text</code> y <code>decimal(precision,scale)</code> a la vez). El proyecto <code>crud-reportederivado/</code> con los 273 campos completos compila limpio con <code>mvn -DskipTests compile</code>.</p>
+  </section>
+
+</main>
+<footer>Informe de la sesión de trabajo sobre <code>crud_generator/</code>, repositorio crud-automation.</footer>
+</body>
+</html>

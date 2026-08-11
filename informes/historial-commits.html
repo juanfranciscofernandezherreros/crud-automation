@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Historial de commits | crud-automation</title>
+<style>
+  :root{--ink:#17211c;--muted:#58645e;--paper:#f7f8f5;--surface:#fff;--line:#d9dfda;
+        --green:#176b4b;--green-dark:#0f4934;--amber:#b66b13;--danger:#a33a32;--code:#111915;}
+  *{box-sizing:border-box}
+  body{margin:0;color:var(--ink);background:var(--paper);font-family:Inter,ui-sans-serif,system-ui,"Segoe UI",sans-serif;line-height:1.6}
+  header{padding:36px max(24px,calc((100vw - 900px)/2));color:#fff;background:var(--ink);border-bottom:3px solid var(--amber)}
+  header a{color:#e7eee9;text-decoration:none;font-size:14px}
+  h1{margin:10px 0 6px;font-size:32px}
+  header p{margin:0;color:#cfd9d2;max-width:700px}
+  main{width:min(900px,calc(100% - 48px));margin:0 auto;padding:40px 0 80px}
+  .commit{position:relative;margin:0 0 26px;padding:20px 22px;background:var(--surface);border:1px solid var(--line);
+          border-left:5px solid var(--green);border-radius:6px;box-shadow:0 6px 18px rgba(23,33,28,.06)}
+  .commit.fix{border-left-color:var(--danger)}
+  .commit .meta{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:8px;font-size:12px;color:var(--muted)}
+  .hash{font-family:"Cascadia Code",Consolas,monospace;background:#eef2ef;color:var(--green-dark);padding:2px 7px;border-radius:4px}
+  .date{font-family:"Cascadia Code",Consolas,monospace}
+  .tag{padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.03em}
+  .tag.feat{background:#e3f2ea;color:var(--green-dark)}
+  .tag.fix{background:#fbe9e7;color:var(--danger)}
+  .tag.chore{background:#eef1f4;color:#3a5570}
+  .tag.docs{background:#fff3e0;color:var(--amber)}
+  h2{margin:2px 0 8px;font-size:19px}
+  .commit p{margin:0 0 10px;color:#2c352f}
+  .stat{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:10px;font-size:12.5px;color:var(--muted);font-family:"Cascadia Code",Consolas,monospace}
+  .stat b{color:var(--green-dark)}
+  .files{margin:10px 0 0;padding-left:18px;font-size:13px;color:var(--muted)}
+  .files li{margin:2px 0}
+  code{font-family:"Cascadia Code",Consolas,monospace;background:#eef2ef;color:var(--green-dark);padding:1px 5px;border-radius:3px}
+  .callout{margin:34px 0 0;padding:16px 18px;background:#edf6f1;border-left:4px solid var(--green);border-radius:0 6px 6px 0;font-size:14px}
+  footer{padding:24px;color:#cad5ce;background:var(--ink);text-align:center;font-size:12.5px}
+</style>
+</head>
+<body>
+<header>
+  <a href="index.html">&larr; Informes crud-automation</a>
+  <h1>Historial de commits, explicado</h1>
+  <p>Los 10 commits del repositorio, de más antiguo a más reciente, con qué cambió y por qué. Generado a partir de <code>git log --reverse --stat</code>.</p>
+</header>
+<main>
+
+  <div class="commit">
+    <div class="meta"><span class="hash">25a24f4</span><span class="date">2026-08-10</span><span class="tag chore">inicio</span></div>
+    <h2>Initial commit script</h2>
+    <p>Primera versión: un único script <code>generate_crud.py</code> de 758 líneas que genera un CRUD Spring Boot completo a partir de una línea de comandos. El commit también incluye, sin querer, la salida generada de ejemplo <code>crud-producto/</code> completa — con <code>.class</code> compilados y ficheros de <code>target/</code> de Maven incluidos en git.</p>
+    <div class="stat">52 ficheros · <b>+2225</b> líneas</div>
+    <p style="margin-top:10px"><strong>Problema que arrastra:</strong> mezclar el generador con su propia salida compilada en el mismo commit. Se corrige en el siguiente.</p>
+  </div>
+
+  <div class="commit">
+    <div class="meta"><span class="hash">b769e82</span><span class="date">2026-08-10</span><span class="tag chore">refactor</span></div>
+    <h2>Modulariza y valida el generador CRUD</h2>
+    <p>Divide el script monolítico en el paquete <code>crud_generator/</code> (<code>cli.py</code>, <code>fields.py</code>, <code>generator.py</code>, <code>parsing.py</code>, <code>templates.py</code>, <code>types.py</code>, <code>writer.py</code>), cada módulo con una responsabilidad. Añade <code>.gitignore</code> para dejar de versionar <code>crud-*/</code> y los artefactos de build de Maven — corrigiendo el problema del commit anterior. Añade los primeros tests (<code>test_cli.py</code>, <code>test_parsing.py</code>).</p>
+    <div class="stat">63 ficheros · <b>+1097 / -2218</b> líneas</div>
+  </div>
+
+  <div class="commit">
+    <div class="meta"><span class="hash">d390ef0</span><span class="date">2026-08-10</span><span class="tag feat">calidad</span></div>
+    <h2>Corrige y verifica proyectos generados</h2>
+    <p>Añade <code>tests/test_generated_projects.py</code>: un test de aceptación que genera proyectos reales y ejecuta <code>mvn verify</code> sobre ellos. A partir de aquí el generador no solo se prueba a sí mismo (parsing, plantillas) sino que se demuestra que <em>lo que produce compila y pasa sus propios tests</em> — el patrón de verificación que se sigue usando en todo el repositorio.</p>
+    <div class="stat">5 ficheros · <b>+120 / -20</b> líneas</div>
+  </div>
+
+  <div class="commit">
+    <div class="meta"><span class="hash">ade9e65</span><span class="date">2026-08-10</span><span class="tag feat">feature</span></div>
+    <h2>Genera validaciones para los DTO</h2>
+    <p>Añade generación de Bean Validation (<code>@NotNull</code>, <code>@NotBlank</code>, <code>@Positive</code>, <code>@Size</code>, <code>@DecimalMin</code>/<code>@DecimalMax</code>) en los DTO, más las restricciones SQL equivalentes (<code>NOT NULL</code>, <code>CHECK</code>) en la migración Flyway. Es el commit que sienta las reglas <code>required</code>/<code>not_blank</code>/<code>positive</code>/<code>min</code>/<code>max</code> que el DSL de atributos sigue usando hoy.</p>
+    <div class="stat">8 ficheros · <b>+421 / -18</b> líneas</div>
+  </div>
+
+  <div class="commit">
+    <div class="meta"><span class="hash">89692d3</span><span class="date">2026-08-10</span><span class="tag docs">docs</span></div>
+    <h2>Documenta un ejemplo avanzado del generador</h2>
+    <p>Solo <code>README.md</code>: añade un ejemplo completo (<code>OperacionFinanciera</code>) que combina varios tipos y reglas a la vez, sirviendo de referencia rápida para usuarios del generador.</p>
+    <div class="stat">1 fichero · <b>+22</b> líneas</div>
+  </div>
+
+  <div class="commit">
+    <div class="meta"><span class="hash">51ff2b7</span><span class="date">2026-08-10</span><span class="tag feat">feature</span></div>
+    <h2>Permite elegir la arquitectura del CRUD</h2>
+    <p>El cambio más grande hasta ese momento: añade <code>architectures.py</code>, <code>ports_generator.py</code> y <code>ports_templates.py</code> para poder generar la misma entidad en tres organizaciones de código distintas — <code>layered</code>, <code>hexagonal</code> y <code>clean</code> — desde la misma definición de campos. A partir de aquí casi todo cambio del generador tiene que replicarse en dos sitios: <code>templates.py</code> (layered) y <code>ports_templates.py</code> (hexagonal/clean).</p>
+    <div class="stat">9 ficheros · <b>+878 / -12</b> líneas</div>
+  </div>
+
+  <div class="commit">
+    <div class="meta"><span class="hash">1c7a9a0</span><span class="date">2026-08-10</span><span class="tag feat">feature</span></div>
+    <h2>feat: endurecer CRUDs generados para producción</h2>
+    <p>Refuerza lo generado para un contexto de producción real: paginación y límites, seguridad HTTP Basic con roles (<code>USER</code>/<code>ADMIN</code>), bloqueo optimista con <code>@Version</code>, idempotencia en <code>POST</code> vía <code>Idempotency-Key</code>, y limitación de peticiones por IP. Reescribe buena parte de <code>templates.py</code> y <code>ports_templates.py</code>.</p>
+    <div class="stat">11 ficheros · <b>+762 / -185</b> líneas</div>
+  </div>
+
+  <div class="commit">
+    <div class="meta"><span class="hash">1752ae0</span><span class="date">2026-08-10</span><span class="tag feat">feature</span></div>
+    <h2>feat: generar documentación técnica HTML</h2>
+    <p>Añade <code>documentation.py</code>: cada proyecto generado incluye ahora su propio <code>docs/index.html</code> autocontenido, calculado a partir de la entidad, arquitectura y definición de campos usados — con el comando reproducible, tabla de tipos/reglas y guía de ejecución.</p>
+    <div class="stat">6 ficheros · <b>+331 / -3</b> líneas</div>
+  </div>
+
+  <div class="commit fix">
+    <div class="meta"><span class="hash">e1fddaf</span><span class="date">2026-08-11</span><span class="tag feat">feature</span></div>
+    <h2>feat: soporta decimal(p,s), text, default y claves compuestas</h2>
+    <p>Motivado por generar un microservicio real a partir de un esquema EMIR/SFTR de más de 270 columnas: el generador perdía información al reproducirlo (precisión/escala fija en <code>decimal</code>, sin tipo texto libre, sin valores por defecto reales, sin unicidad compuesta). Añade <code>precision=</code>/<code>scale=</code> para <code>decimal</code>, el tipo <code>text</code>, <code>default=valor</code> (con <code>@DynamicInsert</code> para que el <code>DEFAULT</code> de PostgreSQL se aplique de verdad cuando el DTO llega en <code>null</code>) y <code>composite_unique=grupo</code> para claves <code>UNIQUE</code> multi-columna — en las tres arquitecturas.</p>
+    <div class="stat">12 ficheros · <b>+520 / -38</b> líneas</div>
+  </div>
+
+  <div class="commit fix">
+    <div class="meta"><span class="hash">e051e14</span><span class="date">2026-08-11</span><span class="tag fix">fix</span></div>
+    <h2>fix: evita superar el límite de 255 parámetros de constructor JVM</h2>
+    <p>Al generar esa misma entidad de 273 campos reales, la compilación falló: <code>@AllArgsConstructor</code> + <code>@Builder</code> de Lombok generan un constructor con un parámetro por campo (275, contando <code>id</code> y <code>version</code>), y la JVM rechaza cualquier método o constructor de más de 255 parámetros (JVMS §4.11). El generador ahora detecta ese caso (<code>exceeds_constructor_param_limit</code>) y omite ambas anotaciones, dejando <code>@NoArgsConstructor</code> + <code>@Getter</code>/<code>@Setter</code> — suficiente para JPA y para que MapStruct mapee vía setters. Ver <a href="hallazgos-generador.html">detalle en el informe de hallazgos</a>.</p>
+    <div class="stat">6 ficheros · <b>+102 / -11</b> líneas</div>
+  </div>
+
+  <div class="callout">
+    Los dos últimos commits (<code>e1fddaf</code>, <code>e051e14</code>) son los que motivaron este informe:
+    surgieron al usar el generador contra un esquema de producción real en vez de los ejemplos de 3-10 campos
+    con los que se había probado hasta entonces. Detalle completo en
+    <a href="hallazgos-generador.html">hallazgos-generador.html</a>.
+  </div>
+
+</main>
+<footer>Informe generado a partir de <code>git log</code> del repositorio crud-automation.</footer>
+</body>
+</html>
