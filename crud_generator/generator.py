@@ -6,6 +6,7 @@ from .fields import (
     generate_dto_fields,
     generate_entity_fields,
     generate_invalid_test_dto_assignments,
+    generate_specification_filter_cases,
     generate_sql_fields,
     generate_sql_indexes,
     generate_table_unique_constraints_annotation,
@@ -105,6 +106,12 @@ def generate_layered_project(entity_name, attrs_str):
     write_file(
         f"{java_base}/repository/{entity_name}Repository.java",
         templates.get_repository(entity_name),
+    )
+    write_file(
+        f"{java_base}/specification/{entity_name}Specifications.java",
+        templates.get_specification(
+            entity_name, generate_specification_filter_cases(attrs)
+        ),
     )
 
     dto_definitions = [

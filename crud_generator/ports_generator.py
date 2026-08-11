@@ -8,6 +8,7 @@ from .fields import (
     generate_entity_fields,
     generate_invalid_test_dto_assignments,
     generate_plain_fields,
+    generate_specification_filter_cases,
     generate_sql_fields,
     generate_sql_indexes,
     generate_table_unique_constraints_annotation,
@@ -193,6 +194,10 @@ def generate_ports_project(entity_name, attrs_str, layout):
             ports_templates.get_persistence_mapper(entity_name, layout),
         (layout.persistence_package, f"{entity_name}JpaRepository.java"):
             ports_templates.get_repository(entity_name, layout),
+        (layout.persistence_package, f"{entity_name}JpaSpecifications.java"):
+            ports_templates.get_jpa_specification(
+                entity_name, layout, generate_specification_filter_cases(attrs)
+            ),
         (layout.persistence_package, f"{entity_name}PersistenceAdapter.java"):
             ports_templates.get_persistence_adapter(entity_name, layout),
         (layout.exception_package, "ResourceNotFoundException.java"):

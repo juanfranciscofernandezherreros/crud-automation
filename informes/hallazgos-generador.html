@@ -121,9 +121,48 @@ refitidctrl:string:not_blank:composite_unique=refit_key
   </section>
 
   <section>
+    <span class="eyebrow">Hallazgo 6 · Bug real encontrado en producción (Docker)</span>
+    <h2>Ordenar por una propiedad inexistente devolvía 500 con stack trace<span class="badge fix">fix</span></h2>
+    <p>Con <code>crud-reportederivado</code> ya levantado en Docker (<code>docker compose up</code>, PostgreSQL + app reales, no un mock) y 15 filas insertadas, una petición <code>GET /api/reportederivados?sort=string</code> — <code>string</code> es el valor de ejemplo que Swagger UI rellena por defecto en un parámetro de tipo texto — devolvía <code>500</code> con una <code>PropertyReferenceException</code> completa filtrada al cliente:</p>
+    <pre>org.springframework.data.mapping.PropertyReferenceException:
+No property 'string' found for type 'ReporteDerivado'</pre>
+    <p><code>GlobalExceptionHandler</code> no tenía ningún <code>@ExceptionHandler</code> para esa excepción, así que Spring dejaba pasar el error tal cual hasta el cliente. Ningún proyecto de ejemplo anterior lo había disparado porque nadie prueba manualmente <code>?sort=</code> con un valor inventado contra un servicio real.</p>
+    <h3>Corrección</h3>
+    <p>Nuevo <code>@ExceptionHandler(PropertyReferenceException.class)</code> en <code>templates.py</code> y <code>ports_templates.py</code> que responde <code>400</code> con un mensaje claro (<code>"Propiedad de ordenación no válida: string"</code>). De paso, se corrigió el mismo ruido cosmético en <code>docker-compose.yml</code>: el healthcheck <code>pg_isready -U $POSTGRES_USER</code> sin <code>-d</code> intentaba conectar a una base de datos llamada igual que el usuario (convención por defecto de libpq) y llenaba el log de <code>FATAL: database "app_user" does not exist</code> cada 5 segundos — inofensivo, pero confuso; ahora es <code>pg_isready -U ... -d $POSTGRES_DB</code>.</p>
+  </section>
+
+  <section>
+    <span class="eyebrow">Hallazgo 7 · Pedido explícito del usuario</span>
+    <h2>Filtrado genérico por cualquier campo, combinado con paginación<span class="badge">feature</span></h2>
+    <p>El generador solo paginaba (<code>page</code>/<code>size</code>/<code>sort</code>); no existía forma de filtrar el listado por ningún campo. Se añadió un filtrado por igualdad exacta sobre <em>cualquier</em> campo de la entidad, vía query params, combinable con la paginación:</p>
+    <pre>GET /api/reportederivados?cntrctsts=ACTV&amp;page=0&amp;size=3
+GET /api/reportederivados?refitid=REFIT-2026-007</pre>
+    <p>En generación se conoce el tipo Java real de cada campo, así que en vez de un filtro genérico basado en reflexión se genera una clase <code>{Entity}Specifications</code> con un <code>Specification&lt;Entity&gt;</code> de Spring Data (JPA Criteria) y un <code>case</code> por campo que convierte el <code>String</code> del query param al tipo correcto (<code>Integer.valueOf</code>, <code>new BigDecimal(...)</code>, <code>LocalDate.parse(...)</code>, etc.) antes de comparar — sin reflexión, con conversión de tipos comprobada en compilación. Los query params que no coinciden con ningún campo (incluidos <code>page</code>/<code>size</code>/<code>sort</code>) se ignoran silenciosamente.</p>
+    <h3>Las tres arquitecturas</h3>
+    <table>
+      <thead><tr><th>Arquitectura</th><th>Dónde vive el filtro</th></tr></thead>
+      <tbody>
+        <tr><td><code>layered</code></td><td><code>{Entity}Specifications</code> junto al repositorio; el controller la invoca directamente y pasa el <code>Specification</code> al service.</td></tr>
+        <tr><td><code>hexagonal</code> / <code>clean</code></td><td><code>PageQuery</code> del dominio gana un campo <code>Map&lt;String,String&gt; filters</code> (tipo JDK puro, no rompe el aislamiento del dominio); el <code>Specification</code> solo se construye dentro del adaptador de persistencia (<code>{Entity}JpaSpecifications</code>), donde ya se permiten tipos JPA.</td></tr>
+      </tbody>
+    </table>
+    <p>Efecto secundario esperado: un valor de filtro con formato inválido (<code>?othrmstragrmtvrsn=no-es-un-numero</code> sobre un campo <code>int</code>) lanza <code>NumberFormatException</code>/<code>DateTimeParseException</code>. Se añadió el mismo tipo de <code>@ExceptionHandler</code> que en el Hallazgo 6 para devolver <code>400</code> en vez de <code>500</code>.</p>
+    <h3>Verificado en vivo</h3>
+    <table>
+      <thead><tr><th>Petición</th><th>Resultado real contra los 15 registros insertados</th></tr></thead>
+      <tbody>
+        <tr><td><code>?cntrctsts=ACTV&amp;page=0&amp;size=3</code></td><td><code>200</code>, <code>totalElements: 15</code>, 3 primeras filas</td></tr>
+        <tr><td><code>?refitid=REFIT-2026-007</code></td><td><code>200</code>, <code>totalElements: 1</code></td></tr>
+        <tr><td><code>?cntrctsts=CLOSED</code> (no existe ninguna)</td><td><code>200</code>, <code>totalElements: 0</code></td></tr>
+        <tr><td><code>?othrmstragrmtvrsn=no-es-un-numero</code></td><td><code>400</code>, <code>"Valor de filtro no válido: For input string: \"no-es-un-numero\""</code></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
     <span class="eyebrow">Resultado</span>
     <h2>Estado final verificado</h2>
-    <p><code>python -m pytest -q</code> &#8594; 48 tests en verde, incluyendo <code>mvn verify</code> real sobre los cuatro proyectos de aceptación (uno de ellos ejercitando <code>composite_unique</code>, <code>default</code>, <code>text</code> y <code>decimal(precision,scale)</code> a la vez). El proyecto <code>crud-reportederivado/</code> con los 273 campos completos compila limpio con <code>mvn -DskipTests compile</code>.</p>
+    <p><code>python -m pytest -q</code> &#8594; 48 tests en verde, incluyendo <code>mvn verify</code> real sobre los cuatro proyectos de aceptación (uno de ellos ejercitando <code>composite_unique</code>, <code>default</code>, <code>text</code>, <code>decimal(precision,scale)</code> y el filtrado a la vez). El proyecto <code>crud-reportederivado/</code> con los 273 campos completos compila limpio y corre en Docker (<code>docker compose up</code>) con las 15 filas de prueba insertadas, paginación, filtrado y los dos manejadores de error nuevos verificados en vivo contra la API real.</p>
   </section>
 
 </main>

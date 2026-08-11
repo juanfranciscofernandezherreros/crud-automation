@@ -4,6 +4,7 @@ from crud_generator.fields import (
     generate_dto_fields,
     generate_entity_fields,
     generate_invalid_test_dto_assignments,
+    generate_specification_filter_cases,
     generate_sql_fields,
     generate_sql_indexes,
     generate_table_unique_constraints_annotation,
@@ -129,6 +130,22 @@ class DtoFieldsTest(unittest.TestCase):
             'columnNames = {"refitid", "refitidctrl"})',
             annotation,
         )
+
+    def test_generates_typed_specification_filter_cases(self):
+        attributes = parse_attributes(
+            "id:int, nombre:string, importe:decimal:precision=10:scale=2, "
+            "activo:boolean, nacimiento:date, creado:datetime"
+        )
+
+        cases = generate_specification_filter_cases(attributes)
+
+        self.assertIn('case "nombre" -> spec = spec.and(', cases)
+        self.assertIn('cb.equal(root.get("nombre"), value)', cases)
+        self.assertIn('cb.equal(root.get("importe"), new BigDecimal(value))', cases)
+        self.assertIn('cb.equal(root.get("activo"), Boolean.valueOf(value))', cases)
+        self.assertIn('cb.equal(root.get("nacimiento"), LocalDate.parse(value))', cases)
+        self.assertIn('cb.equal(root.get("creado"), LocalDateTime.parse(value))', cases)
+        self.assertIn('case "id" -> spec = spec.and(', cases)
 
 
 if __name__ == "__main__":

@@ -23,12 +23,17 @@ import java.math.BigDecimal;
 def get_page_query(package):
     return f"""package {package};
 
-public record PageQuery(int page, int size, String sort) {{
+import java.util.Map;
+
+public record PageQuery(int page, int size, String sort, Map<String, String> filters) {{
     public PageQuery {{
         if (page < 0) throw new IllegalArgumentException("page no puede ser negativo");
         if (size < 1 || size > 100) throw new IllegalArgumentException("size debe estar entre 1 y 100");
         if (sort == null || !sort.matches("[A-Za-z][A-Za-z0-9]*")) {{
             throw new IllegalArgumentException("sort no es válido");
+        }}
+        if (filters == null) {{
+            filters = Map.of();
         }}
     }}
 }}
@@ -255,9 +260,43 @@ def get_repository(entity_name, layout):
     return f"""package {layout.persistence_package};
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 
-public interface {entity_name}JpaRepository
-        extends JpaRepository<{entity_name}JpaEntity, Integer> {{
+public interface {entity_name}JpaRepository extends
+        JpaRepository<{entity_name}JpaEntity, Integer>,
+        JpaSpecificationExecutor<{entity_name}JpaEntity> {{
+}}
+"""
+
+
+def get_jpa_specification(entity_name, layout, filter_cases):
+    return f"""package {layout.persistence_package};
+
+import org.springframework.data.jpa.domain.Specification;
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.Map;
+
+final class {entity_name}JpaSpecifications {{
+
+    private {entity_name}JpaSpecifications() {{
+    }}
+
+    static Specification<{entity_name}JpaEntity> fromFilters(Map<String, String> filters) {{
+        Specification<{entity_name}JpaEntity> spec = Specification.where(null);
+        for (Map.Entry<String, String> entry : filters.entrySet()) {{
+            String value = entry.getValue();
+            if (value == null || value.isBlank()) {{
+                continue;
+            }}
+            switch (entry.getKey()) {{
+{filter_cases}
+                default -> {{ }}
+            }}
+        }}
+        return spec;
+    }}
 }}
 """
 
@@ -272,6 +311,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.transaction.annotation.Transactional;
 import {layout.domain_package}.PageQuery;
 import {layout.domain_package}.PageResult;
@@ -293,7 +333,9 @@ public class {entity_name}PersistenceAdapter implements {entity_name}Persistence
     @Override
     @Transactional(readOnly = true)
     public PageResult<{entity_name}> findAll(PageQuery query) {{
-        Page<{entity_name}JpaEntity> page = repository.findAll(PageRequest.of(
+        Specification<{entity_name}JpaEntity> spec =
+                {entity_name}JpaSpecifications.fromFilters(query.filters());
+        Page<{entity_name}JpaEntity> page = repository.findAll(spec, PageRequest.of(
                 query.page(), query.size(), Sort.by(query.sort()).ascending()));
         return new PageResult<>(
                 page.getContent().stream().map(mapper::toDomain).toList(),
@@ -331,6 +373,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 import java.net.URI;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/{entity_lower}s")
@@ -362,8 +405,9 @@ public class {entity_name}Controller {{
     public ResponseEntity<PageResult<{entity_name}ResponseDTO>> findAll(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
-            @RequestParam(defaultValue = "id") String sort) {{
-        PageResult<{entity_name}> result = useCase.findAll(new PageQuery(page, size, sort));
+            @RequestParam(defaultValue = "id") String sort,
+            @RequestParam Map<String, String> filters) {{
+        PageResult<{entity_name}> result = useCase.findAll(new PageQuery(page, size, sort, filters));
         return ResponseEntity.ok(new PageResult<>(
                 result.content().stream().map(mapper::toDto).toList(),
                 result.totalElements(), result.totalPages(), result.page(), result.size()));
@@ -417,12 +461,25 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import org.springframework.data.mapping.PropertyReferenceException;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeParseException;
 import java.util.HashMap;
 import java.util.Map;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {{
+    @ExceptionHandler(PropertyReferenceException.class)
+    public ResponseEntity<Map<String, Object>> handleInvalidSortProperty(PropertyReferenceException ex) {{
+        return error(HttpStatus.BAD_REQUEST,
+                "Propiedad de ordenación no válida: " + ex.getPropertyName(), Map.of());
+    }}
+
+    @ExceptionHandler({{NumberFormatException.class, DateTimeParseException.class}})
+    public ResponseEntity<Map<String, Object>> handleInvalidFilterValue(RuntimeException ex) {{
+        return error(HttpStatus.BAD_REQUEST, "Valor de filtro no válido: " + ex.getMessage(), Map.of());
+    }}
+
     @ExceptionHandler(ResourceNotFoundException.class)
     public ResponseEntity<Map<String, Object>> handleNotFound(ResourceNotFoundException ex) {{
         return error(HttpStatus.NOT_FOUND, ex.getMessage(), Map.of());
@@ -551,6 +608,7 @@ def get_controller_test(
     return f"""package {layout.controller_package};
 
 import {layout.domain_package}.{entity_name};
+import {layout.domain_package}.PageResult;
 import {layout.dto_package}.*;
 import {layout.input_package}.{entity_name}UseCase;
 import {layout.web_mapper_package}.{entity_name}WebMapper;
@@ -566,6 +624,7 @@ import org.springframework.security.test.context.support.WithMockUser;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.math.BigDecimal;
+import java.util.List;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -606,6 +665,14 @@ class {entity_name}ControllerTest {{
     }}
 {required_test}
 {constraint_test}
+
+    @Test
+    void findAll_WithFilterQueryParam_Returns200() throws Exception {{
+        when(useCase.findAll(any())).thenReturn(new PageResult<>(List.of(), 0, 0, 0, 20));
+
+        mockMvc.perform(get("/api/{entity_lower}s?page=0&size=5&estadoInventado=cualquier-valor"))
+                .andExpect(status().isOk());
+    }}
 
     @Test
     void patch_EmptyInput_Returns200() throws Exception {{

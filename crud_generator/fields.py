@@ -19,6 +19,34 @@ def has_default(attrs):
     return any("default" in attr["validations"] for attr in attrs)
 
 
+# Cómo convertir el valor de un query param (siempre String) al tipo Java real
+# del campo antes de comparar en el Specification. None => tipo no filtrable.
+FILTER_VALUE_PARSERS = {
+    "String": "value",
+    "Integer": "Integer.valueOf(value)",
+    "Boolean": "Boolean.valueOf(value)",
+    "BigDecimal": "new BigDecimal(value)",
+    "Float": "Float.valueOf(value)",
+    "Double": "Double.valueOf(value)",
+    "LocalDate": "LocalDate.parse(value)",
+    "LocalDateTime": "LocalDateTime.parse(value)",
+}
+
+
+def generate_specification_filter_cases(attrs):
+    """Un 'case' de switch por atributo filtrable, para {Entity}Specifications.fromFilters."""
+    lines = []
+    for attr in attrs:
+        parser = FILTER_VALUE_PARSERS.get(attr["java_type"])
+        if parser is None:
+            continue
+        lines.append(
+            f'                case "{attr["camel_name"]}" -> spec = spec.and('
+            f'(root, query, cb) -> cb.equal(root.get("{attr["camel_name"]}"), {parser}));'
+        )
+    return "\n".join(lines)
+
+
 # La JVM limita un constructor a 255 argumentos, incluida la referencia implicita
 # al objeto en construccion (JLS 8.4.1 / JVMS 4.11). Con 'version' incluido, un
 # @AllArgsConstructor + @Builder deja de compilar a partir de ahi.

@@ -129,7 +129,7 @@ services:
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${{POSTGRES_USER}}"]
+      test: ["CMD-SHELL", "pg_isready -U $${{POSTGRES_USER}} -d $${{POSTGRES_DB}}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -288,10 +288,44 @@ def get_repository(entity_name):
 
 import com.example.crud.entity.{entity_name};
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.stereotype.Repository;
 
 @Repository
-public interface {entity_name}Repository extends JpaRepository<{entity_name}, Integer> {{
+public interface {entity_name}Repository
+        extends JpaRepository<{entity_name}, Integer>, JpaSpecificationExecutor<{entity_name}> {{
+}}
+"""
+
+def get_specification(entity_name, filter_cases):
+    return f"""package com.example.crud.specification;
+
+import com.example.crud.entity.{entity_name};
+import org.springframework.data.jpa.domain.Specification;
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.Map;
+
+public final class {entity_name}Specifications {{
+
+    private {entity_name}Specifications() {{
+    }}
+
+    public static Specification<{entity_name}> fromFilters(Map<String, String> filters) {{
+        Specification<{entity_name}> spec = Specification.where(null);
+        for (Map.Entry<String, String> entry : filters.entrySet()) {{
+            String value = entry.getValue();
+            if (value == null || value.isBlank()) {{
+                continue;
+            }}
+            switch (entry.getKey()) {{
+{filter_cases}
+                default -> {{ }}
+            }}
+        }}
+        return spec;
+    }}
 }}
 """
 
@@ -299,12 +333,14 @@ def get_service(entity_name):
     return f"""package com.example.crud.service;
 
 import com.example.crud.dto.*;
+import com.example.crud.entity.{entity_name};
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 
 public interface {entity_name}Service {{
     {entity_name}ResponseDTO create({entity_name}CreateDTO createDTO);
-    Page<{entity_name}ResponseDTO> findAll(Pageable pageable);
+    Page<{entity_name}ResponseDTO> findAll(Pageable pageable, Specification<{entity_name}> spec);
     {entity_name}ResponseDTO findById(Integer id);
     {entity_name}ResponseDTO update(Integer id, {entity_name}UpdateDTO updateDTO);
     {entity_name}ResponseDTO patch(Integer id, {entity_name}PatchDTO patchDTO);
@@ -324,6 +360,7 @@ import com.example.crud.service.{entity_name}Service;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -343,8 +380,8 @@ public class {entity_name}ServiceImpl implements {entity_name}Service {{
 
     @Override
     @Transactional(readOnly = true)
-    public Page<{entity_name}ResponseDTO> findAll(Pageable pageable) {{
-        return repository.findAll(pageable).map(mapper::toDto);
+    public Page<{entity_name}ResponseDTO> findAll(Pageable pageable, Specification<{entity_name}> spec) {{
+        return repository.findAll(spec, pageable).map(mapper::toDto);
     }}
 
     @Override
@@ -388,6 +425,7 @@ def get_controller(entity_name, entity_lower):
 import com.example.crud.dto.*;
 import com.example.crud.configuration.IdempotencyService;
 import com.example.crud.service.{entity_name}Service;
+import com.example.crud.specification.{entity_name}Specifications;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -398,6 +436,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 import java.net.URI;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/{entity_lower}s")
@@ -424,9 +463,11 @@ public class {entity_name}Controller {{
     }}
 
     @GetMapping
-    @Operation(summary = "Listar {entity_lower}s")
-    public ResponseEntity<Page<{entity_name}ResponseDTO>> findAll(Pageable pageable) {{
-        return ResponseEntity.ok(service.findAll(pageable));
+    @Operation(summary = "Listar {entity_lower}s",
+            description = "Admite filtros por igualdad usando cualquier campo de la entidad como query param")
+    public ResponseEntity<Page<{entity_name}ResponseDTO>> findAll(
+            Pageable pageable, @RequestParam Map<String, String> filters) {{
+        return ResponseEntity.ok(service.findAll(pageable, {entity_name}Specifications.fromFilters(filters)));
     }}
 
     @GetMapping("/{{id}}")
@@ -635,13 +676,35 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import org.springframework.data.mapping.PropertyReferenceException;
 
 import java.time.LocalDateTime;
+import java.time.format.DateTimeParseException;
 import java.util.HashMap;
 import java.util.Map;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    @ExceptionHandler(PropertyReferenceException.class)
+    public ResponseEntity<Map<String, Object>> handleInvalidSortProperty(PropertyReferenceException ex) {
+        Map<String, Object> error = new HashMap<>();
+        error.put("timestamp", LocalDateTime.now());
+        error.put("status", HttpStatus.BAD_REQUEST.value());
+        error.put("error", HttpStatus.BAD_REQUEST.getReasonPhrase());
+        error.put("message", "Propiedad de ordenación no válida: " + ex.getPropertyName());
+        return new ResponseEntity<>(error, HttpStatus.BAD_REQUEST);
+    }
+
+    @ExceptionHandler({NumberFormatException.class, DateTimeParseException.class})
+    public ResponseEntity<Map<String, Object>> handleInvalidFilterValue(RuntimeException ex) {
+        Map<String, Object> error = new HashMap<>();
+        error.put("timestamp", LocalDateTime.now());
+        error.put("status", HttpStatus.BAD_REQUEST.value());
+        error.put("error", HttpStatus.BAD_REQUEST.getReasonPhrase());
+        error.put("message", "Valor de filtro no válido: " + ex.getMessage());
+        return new ResponseEntity<>(error, HttpStatus.BAD_REQUEST);
+    }
 
     @ExceptionHandler(ResourceNotFoundException.class)
     public ResponseEntity<Map<String, Object>> handleNotFound(ResourceNotFoundException ex) {
@@ -841,6 +904,9 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.math.BigDecimal;
 
+import org.springframework.data.domain.PageImpl;
+import java.util.List;
+
 import static org.mockito.ArgumentMatchers.any;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -883,6 +949,14 @@ class {entity_name}ControllerTest {{
     }}
 {invalid_test}
 {constraint_test}
+
+    @Test
+    void findAll_WithFilterQueryParam_Returns200() throws Exception {{
+        Mockito.when(service.findAll(any(), any())).thenReturn(new PageImpl<>(List.of()));
+
+        mockMvc.perform(get("/api/{entity_lower}s?page=0&size=5&estadoInventado=cualquier-valor"))
+                .andExpect(status().isOk());
+    }}
 
     @Test
     void patch_EmptyInput_Returns200() throws Exception {{

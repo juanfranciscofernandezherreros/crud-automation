@@ -148,6 +148,17 @@ Start-Process .\crud-fondoinversion-hexagonal\docs\index.html
 
 - Los listados estan paginados: 20 elementos por defecto y 100 como maximo.
   Hexagonal y clean usan `PageQuery` y `PageResult` propios en el dominio.
+- El listado admite filtros por igualdad usando cualquier campo de la entidad
+  como query param, combinables entre si y con la paginacion:
+  `GET /api/productos?nombre=Teclado&activo=true&page=0&size=20`. Se traduce
+  a un `Specification` de Spring Data (JPA Criteria) construido en generacion,
+  con un `case` por campo que convierte el `String` del query param al tipo
+  Java real (`Integer`, `BigDecimal`, `LocalDate`, `LocalDateTime`, `Boolean`,
+  `String`); los query params que no coinciden con ningun campo se ignoran.
+  Un valor de filtro con formato invalido (`?precio=no-es-un-numero`) responde
+  `400` con un mensaje claro en vez de un `500`. Una propiedad de `sort`
+  inexistente (`?sort=string`, el placeholder que sugiere Swagger UI por
+  defecto) tambien responde `400` en vez de `500`.
 - Entidades y modelos incluyen `version`; JPA usa `@Version` para concurrencia
   optimista y Flyway crea la columna correspondiente.
 - `POST` exige `Idempotency-Key`. PostgreSQL bloquea concurrentemente la clave
