@@ -207,21 +207,31 @@ CREATE TABLE IF NOT EXISTS idempotency_keys (
 );
 """
 
-def get_entity(entity_name, entity_lower, entity_fields):
+def get_entity(
+    entity_name,
+    entity_lower,
+    entity_fields,
+    unique_constraints_annotation="",
+    dynamic_insert=False,
+):
+    dynamic_insert_import = (
+        "\nimport org.hibernate.annotations.DynamicInsert;" if dynamic_insert else ""
+    )
+    dynamic_insert_annotation = "\n@DynamicInsert" if dynamic_insert else ""
     return f"""package com.example.crud.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.LastModifiedDate;
-import org.springframework.data.jpa.domain.support.AuditingEntityListener;
+import org.springframework.data.jpa.domain.support.AuditingEntityListener;{dynamic_insert_import}
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.math.BigDecimal;
 
 @Entity
-@Table(name = "{entity_lower}s")
+@Table(name = "{entity_lower}s"{unique_constraints_annotation}){dynamic_insert_annotation}
 @Getter
 @Setter
 @NoArgsConstructor

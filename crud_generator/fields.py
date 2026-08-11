@@ -2,6 +2,74 @@
 
 from decimal import Decimal, ROUND_CEILING
 
+from .parsing import expand_datetime_default
+
+
+def generate_composite_unique_groups(attrs):
+    """Agrupa por nombre de grupo los atributos con 'composite_unique=<grupo>'."""
+    groups = {}
+    for attr in attrs:
+        group = attr["validations"].get("composite_unique")
+        if group:
+            groups.setdefault(group, []).append(attr["name"])
+    return groups
+
+
+def has_default(attrs):
+    return any("default" in attr["validations"] for attr in attrs)
+
+
+def format_default_sql_literal(attr):
+    type_name = attr["type"]
+    value = attr["validations"]["default"]
+    if type_name in {"string", "text"}:
+        return "'{}'".format(value.replace("'", "''"))
+    if type_name == "boolean":
+        return value
+    if type_name == "date":
+        return f"DATE '{value}'"
+    if type_name == "datetime":
+        return f"TIMESTAMP '{expand_datetime_default(value)}'"
+    return value
+
+
+def format_default_java_literal(attr):
+    type_name = attr["type"]
+    value = attr["validations"]["default"]
+    if type_name in {"string", "text"}:
+        escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+        return f'"{escaped}"'
+    if type_name == "boolean":
+        return value
+    if type_name == "int":
+        return value
+    if type_name == "decimal":
+        return f'new BigDecimal("{value}")'
+    if type_name == "float":
+        return f"{value}f"
+    if type_name == "double":
+        return f"{value}d"
+    if type_name == "date":
+        return f'java.time.LocalDate.parse("{value}")'
+    if type_name == "datetime":
+        return f'java.time.LocalDateTime.parse("{expand_datetime_default(value)}")'
+    raise ValueError(f"Tipo no soportado para 'default': {type_name}")
+
+
+def generate_table_unique_constraints_annotation(attrs):
+    """Fragmento para @Table(...) con las claves UNIQUE compuestas (composite_unique)."""
+    groups = generate_composite_unique_groups(attrs)
+    if not groups:
+        return ""
+    entries = []
+    for group, members in groups.items():
+        columns = ", ".join(f'"{name}"' for name in members)
+        entries.append(
+            f'@UniqueConstraint(name = "uq_{group}", columnNames = {{{columns}}})'
+        )
+    joined = ",\n        ".join(entries)
+    return f",\n    uniqueConstraints = {{\n        {joined}\n    }}"
+
 
 def generate_plain_fields(attrs):
     fields = [
@@ -51,9 +119,14 @@ def generate_entity_fields(attrs):
                 f"    private {attr['java_type']} {attr['camel_name']};"
             )
         else:
+            initializer = (
+                f" = {format_default_java_literal(attr)}"
+                if "default" in attr["validations"]
+                else ""
+            )
             lines.append(
                 f"    @Column(name = \"{attr['name']}\")\n"
-                f"    private {attr['java_type']} {attr['camel_name']};"
+                f"    private {attr['java_type']} {attr['camel_name']}{initializer};"
             )
     lines.append("    @Version\n    private Long version;")
     return "\n\n".join(lines)
@@ -78,7 +151,7 @@ def generate_validation_annotations(attr, mode):
 
     minimum = validations.get("min")
     maximum = validations.get("max")
-    if attr["type"] == "string" and (minimum is not None or maximum is not None):
+    if attr["type"] in {"string", "text"} and (minimum is not None or maximum is not None):
         arguments = []
         if minimum is not None:
             arguments.append(f"min = {minimum}")
@@ -164,7 +237,7 @@ def generate_invalid_test_dto_assignments(attrs, variable_name="createDTO"):
 def get_valid_test_value(attr):
     type_name = attr["type"]
     validations = attr["validations"]
-    if type_name == "string":
+    if type_name in {"string", "text"}:
         minimum = int(validations.get("min", 0))
         maximum = int(validations.get("max", 5))
         length = max(minimum, 1 if validations.get("not_blank") else 0)
@@ -200,10 +273,10 @@ def get_invalid_test_value(attr):
         }[type_name]
     if validations.get("not_blank"):
         return '" "'
-    if type_name == "string" and "min" in validations:
+    if type_name in {"string", "text"} and "min" in validations:
         length = max(int(validations["min"]) - 1, 0)
         return f'"{"x" * length}"'
-    if type_name == "string" and "max" in validations:
+    if type_name in {"string", "text"} and "max" in validations:
         return f'"{"x" * (int(validations["max"]) + 1)}"'
     if "min" in validations:
         value = Decimal(validations["min"]) - 1
@@ -216,7 +289,7 @@ def get_invalid_test_value(attr):
     return f"{value}{'f' if type_name == 'float' else 'd'}"
 
 
-def generate_sql_fields(attrs):
+def generate_sql_fields(attrs, table_name="tabla"):
     lines = []
     for attr in attrs:
         if attr["is_id"]:
@@ -232,6 +305,8 @@ def generate_sql_fields(attrs):
             constraints.extend(["NOT NULL", "DEFAULT CURRENT_TIMESTAMP"])
         elif validations.get("required") or validations.get("not_blank"):
             constraints.append("NOT NULL")
+        if "default" in validations:
+            constraints.append(f"DEFAULT {format_default_sql_literal(attr)}")
         if validations.get("unique"):
             constraints.append("UNIQUE")
         checks = []
@@ -242,15 +317,23 @@ def generate_sql_fields(attrs):
         if "min" in validations:
             expression = (
                 f"char_length({attr['name']}) >= {validations['min']}"
-                if attr["type"] == "string"
+                if attr["type"] in {"string", "text"}
                 else f"{attr['name']} >= {validations['min']}"
             )
             checks.append(expression)
-        if "max" in validations and attr["type"] != "string":
-            checks.append(f"{attr['name']} <= {validations['max']}")
+        if "max" in validations:
+            if attr["type"] == "text":
+                checks.append(f"char_length({attr['name']}) <= {validations['max']}")
+            elif attr["type"] != "string":
+                checks.append(f"{attr['name']} <= {validations['max']}")
         constraints.extend(f"CHECK ({check})" for check in checks)
         suffix = f" {' '.join(constraints)}" if constraints else ""
         lines.append(f"    {attr['name']} {sql_type}{suffix}")
+
+    for group, members in generate_composite_unique_groups(attrs).items():
+        columns = ", ".join(members)
+        lines.append(f"    CONSTRAINT uq_{table_name}_{group} UNIQUE ({columns})")
+
     lines.append("    version BIGINT NOT NULL DEFAULT 0")
     return ",\n".join(lines)
 

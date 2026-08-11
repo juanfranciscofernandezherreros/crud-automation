@@ -2,10 +2,13 @@ import unittest
 
 from crud_generator.fields import (
     generate_dto_fields,
+    generate_entity_fields,
     generate_invalid_test_dto_assignments,
     generate_sql_fields,
     generate_sql_indexes,
+    generate_table_unique_constraints_annotation,
     generate_test_dto_assignments,
+    has_default,
 )
 from crud_generator.parsing import parse_attributes
 
@@ -75,6 +78,57 @@ class DtoFieldsTest(unittest.TestCase):
         self.assertIn("version BIGINT NOT NULL DEFAULT 0", sql)
         self.assertNotIn("idx_operaciones_referencia", indexes)
         self.assertIn("idx_operaciones_estado", indexes)
+
+    def test_generates_default_value_default_and_dynamic_insert_flag(self):
+        attributes = parse_attributes(
+            "id:int, lstusr:string:not_blank:default=usr, "
+            "activo:boolean:default=false:required"
+        )
+
+        sql = generate_sql_fields(attributes)
+        entity = generate_entity_fields(attributes)
+
+        self.assertIn("lstusr VARCHAR(255) NOT NULL DEFAULT 'usr'", sql)
+        self.assertIn("activo BOOLEAN NOT NULL DEFAULT false", sql)
+        self.assertIn('private String lstusr = "usr";', entity)
+        self.assertIn("private Boolean activo = false;", entity)
+        self.assertTrue(has_default(attributes))
+
+    def test_generates_text_column_without_varchar_and_with_length_check(self):
+        attributes = parse_attributes("id:int, cuerpo:text:not_blank:max=5000")
+
+        sql = generate_sql_fields(attributes)
+
+        self.assertIn("cuerpo TEXT NOT NULL", sql)
+        self.assertNotIn("VARCHAR", sql)
+        self.assertIn("CHECK (char_length(cuerpo) <= 5000)", sql)
+
+    def test_generates_parametrized_decimal_column(self):
+        attributes = parse_attributes(
+            "id:int, importe:decimal:precision=31:scale=13"
+        )
+
+        sql = generate_sql_fields(attributes)
+
+        self.assertIn("importe DECIMAL(31, 13)", sql)
+
+    def test_generates_composite_unique_constraint_and_table_annotation(self):
+        attributes = parse_attributes(
+            "id:int, refitid:string:not_blank:composite_unique=documento, "
+            "refitidctrl:string:not_blank:composite_unique=documento"
+        )
+
+        sql = generate_sql_fields(attributes, table_name="documentos")
+        annotation = generate_table_unique_constraints_annotation(attributes)
+
+        self.assertIn(
+            "CONSTRAINT uq_documentos_documento UNIQUE (refitid, refitidctrl)", sql
+        )
+        self.assertIn(
+            '@UniqueConstraint(name = "uq_documento", '
+            'columnNames = {"refitid", "refitidctrl"})',
+            annotation,
+        )
 
 
 if __name__ == "__main__":

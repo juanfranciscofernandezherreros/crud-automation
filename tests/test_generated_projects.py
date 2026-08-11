@@ -40,6 +40,15 @@ class GeneratedProjectAcceptanceTest(unittest.TestCase):
             "id:int, nombre:string:not_blank:min=2:max=80, "
             "nacimiento:date:required, saldo:decimal:positive",
         ),
+        "Documento": (
+            "layered",
+            "id:int, refitid:string:not_blank:composite_unique=documento, "
+            "refitidctrl:string:not_blank:composite_unique=documento, "
+            "lstusr:string:not_blank:default=usr, "
+            "activo:boolean:default=true:required, "
+            "detalle:text:not_blank:max=5000, "
+            "importe:decimal:precision=20:scale=4:positive",
+        ),
     }
 
     def test_generated_projects_compile_and_pass_their_tests(self):

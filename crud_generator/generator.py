@@ -7,7 +7,9 @@ from .fields import (
     generate_invalid_test_dto_assignments,
     generate_sql_fields,
     generate_sql_indexes,
+    generate_table_unique_constraints_annotation,
     generate_test_dto_assignments,
+    has_default,
     has_required_input,
 )
 from .parsing import normalize_entity_name, parse_attributes
@@ -35,8 +37,9 @@ def generate_layered_project(entity_name, attrs_str):
     res_base = f"{base_dir}/src/main/resources"
     test_base = f"{base_dir}/src/test/java/com/example/crud"
 
+    table_name = f"{entity_lower}s"
     entity_fields = generate_entity_fields(attrs)
-    sql_fields = generate_sql_fields(attrs)
+    sql_fields = generate_sql_fields(attrs, table_name)
 
     write_file(f"{base_dir}/pom.xml", templates.get_pom_xml(entity_lower))
     write_file(
@@ -58,7 +61,7 @@ def generate_layered_project(entity_name, attrs_str):
         templates.get_sql_migration(
             entity_lower,
             sql_fields,
-            generate_sql_indexes(attrs, f"{entity_lower}s"),
+            generate_sql_indexes(attrs, table_name),
         ),
     )
 
@@ -89,7 +92,13 @@ def generate_layered_project(entity_name, attrs_str):
     )
     write_file(
         f"{java_base}/entity/{entity_name}.java",
-        templates.get_entity(entity_name, entity_lower, entity_fields),
+        templates.get_entity(
+            entity_name,
+            entity_lower,
+            entity_fields,
+            generate_table_unique_constraints_annotation(attrs),
+            has_default(attrs),
+        ),
     )
     write_file(
         f"{java_base}/repository/{entity_name}Repository.java",

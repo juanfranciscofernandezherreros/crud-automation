@@ -9,7 +9,9 @@ from .fields import (
     generate_plain_fields,
     generate_sql_fields,
     generate_sql_indexes,
+    generate_table_unique_constraints_annotation,
     generate_test_dto_assignments,
+    has_default,
     has_required_input,
 )
 from .parsing import parse_attributes
@@ -47,12 +49,13 @@ def generate_ports_project(entity_name, attrs_str, layout):
     write_file(
         f"{resources}/application.yml", templates.get_application_yml(entity_lower)
     )
+    table_name = f"{entity_lower}s"
     write_file(
         f"{resources}/db/migration/V1__Create_Table_{entity_name}.sql",
         templates.get_sql_migration(
             entity_lower,
-            generate_sql_fields(attrs),
-            generate_sql_indexes(attrs, f"{entity_lower}s"),
+            generate_sql_fields(attrs, table_name),
+            generate_sql_indexes(attrs, table_name),
         ),
     )
     write_file(
@@ -177,6 +180,8 @@ def generate_ports_project(entity_name, attrs_str, layout):
                 entity_lower,
                 layout.persistence_package,
                 generate_entity_fields(attrs),
+                generate_table_unique_constraints_annotation(attrs),
+                has_default(attrs),
             ),
         (layout.persistence_package, f"{entity_name}PersistenceMapper.java"):
             ports_templates.get_persistence_mapper(entity_name, layout),

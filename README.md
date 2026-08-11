@@ -54,32 +54,61 @@ existir un `id` y los nombres deben usar `lower_snake_case`.
 | Tipo | Java | PostgreSQL |
 | --- | --- | --- |
 | `int` | `Integer` | `INT` |
-| `string` | `String` | `VARCHAR(255)` |
+| `string` | `String` | `VARCHAR(255)` (o `VARCHAR(max)` con la regla `max=N`) |
+| `text` | `String` | `TEXT` (sin limite; `min=N`/`max=N` se validan con `CHECK char_length`) |
 | `float` | `Float` | `DECIMAL(10, 2)` |
 | `double` | `Double` | `DECIMAL(19, 4)` |
-| `decimal` | `BigDecimal` | `DECIMAL(19, 4)` |
+| `decimal` | `BigDecimal` | `DECIMAL(19, 4)`, o `DECIMAL(precision, scale)` con `precision=N:scale=N` |
 | `boolean` | `Boolean` | `BOOLEAN` |
 | `datetime` | `LocalDateTime` | `TIMESTAMP` |
 | `date` | `LocalDate` | `DATE` |
 
 Para dinero usa siempre `decimal`. `float` y `double` se mantienen para
-magnitudes no monetarias y compatibilidad.
+magnitudes no monetarias y compatibilidad. Usa `text` en vez de `string`
+cuando el contenido no tiene un limite de longitud natural (JSON, texto
+libre, descripciones largas).
 
 | Regla | Tipos | Java y Flyway |
 | --- | --- | --- |
 | `required` | Todos | `@NotNull` y `NOT NULL` |
-| `not_blank` | `string` | `@NotBlank`, `NOT NULL` y `CHECK` |
+| `not_blank` | `string`, `text` | `@NotBlank`, `NOT NULL` y `CHECK` |
 | `positive` | Numericos | `@Positive` y `CHECK (> 0)` |
-| `min=N` | String y numericos | `@Size`/`@DecimalMin` y `CHECK` |
-| `max=N` | String y numericos | `@Size`/`@DecimalMax`, longitud SQL y `CHECK` |
+| `min=N` | String, text y numericos | `@Size`/`@DecimalMin` y `CHECK` |
+| `max=N` | String, text y numericos | `@Size`/`@DecimalMax`, longitud SQL y `CHECK` |
 | `unique` | Todos | Restriccion `UNIQUE` |
 | `index` | Todos | Indice PostgreSQL |
+| `default=valor` | Todos salvo `id` y campos de auditoria | Inicializador Java, `DEFAULT` en Flyway y `@DynamicInsert` |
+| `composite_unique=grupo` | Todos | `UNIQUE` combinada entre los campos que comparten `grupo` |
+| `precision=N:scale=N` | Solo `decimal` | `DECIMAL(N, N)` en Flyway (ambas reglas son obligatorias juntas) |
 
 Un campo `unique` ya tiene el indice implicito de PostgreSQL, por lo que el
 generador no crea un segundo indice aunque se indiquen ambas reglas.
 `CreateDTO` y `UpdateDTO` aplican las reglas obligatorias. `PatchDTO` permite
 omitir campos, pero valida los valores presentes. Los campos `creado_en`,
 `created_at`, `actualizado_en` y `updated_at` se gestionan internamente.
+
+Como `:` separa `nombre:tipo:regla` y `,` separa atributos, ningun valor de
+regla (`default=...`, `composite_unique=...`) puede contener `:` ni `,`. Para
+`default` en un campo `datetime` se omiten los `:` de la hora:
+`campo:datetime:default=2026-01-31T153000` (equivale a las 15:30:00); si se
+omite la hora se asume medianoche.
+
+### Claves compuestas
+
+`refitid:string:not_blank:composite_unique=documento,
+refitidctrl:string:not_blank:composite_unique=documento` genera una unica
+restriccion `UNIQUE (refitid, refitidctrl)` (Flyway y
+`@Table(uniqueConstraints = ...)`), no una `UNIQUE` por columna. El
+generador exige un `id` autonumerico ademas de estos campos, ya que JPA
+siempre necesita una clave primaria simple; los campos del grupo quedan como
+restriccion de negocio adicional. Cada grupo necesita al menos dos campos.
+
+### Valores por defecto
+
+`lstusr:string:not_blank:default=usr` inicializa el campo Java, agrega
+`DEFAULT 'usr'` en la migracion Flyway y activa `@DynamicInsert` en la
+entidad para que Hibernate omita esa columna del `INSERT` cuando el DTO la
+recibe en `null`, dejando que PostgreSQL aplique el valor por defecto.
 
 ## Ejemplo avanzado
 

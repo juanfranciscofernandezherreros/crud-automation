@@ -3,6 +3,7 @@
 JAVA_TYPES = {
     "int": "Integer",
     "string": "String",
+    "text": "String",
     "float": "Float",
     "double": "Double",
     "decimal": "BigDecimal",
@@ -14,6 +15,7 @@ JAVA_TYPES = {
 SQL_TYPES = {
     "int": "INT",
     "string": "VARCHAR(255)",
+    "text": "TEXT",
     "float": "DECIMAL(10, 2)",
     "double": "DECIMAL(19, 4)",
     "decimal": "DECIMAL(19, 4)",
@@ -21,3 +23,6 @@ SQL_TYPES = {
     "datetime": "TIMESTAMP",
     "date": "DATE",
 }
+
+# Tipos que se comportan como texto a efectos de reglas (not_blank, min/max, @Size).
+STRING_LIKE_TYPES = {"string", "text"}
