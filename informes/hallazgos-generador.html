@@ -39,7 +39,7 @@
 <header>
   <a href="index.html">&larr; Informes crud-automation</a>
   <h1>Hallazgos y mejoras del generador</h1>
-  <p class="lead">Qué apareció al usar el generador CRUD contra un esquema real de más de 270 columnas (un mensaje de reporte tipo EMIR/SFTR), y cómo se corrigió cada limitación en <code>crud_generator/</code>.</p>
+  <p class="lead">Qué apareció al usar el generador CRUD contra un esquema real de más de 270 columnas (un mensaje de reporte tipo EMIR/SFTR) y, después, contra peticiones de filtrado y una segunda vía de definición por JSON — y cómo se corrigió cada limitación en <code>crud_generator/</code>.</p>
 </header>
 <main>
 
@@ -160,9 +160,31 @@ GET /api/reportederivados?refitid=REFIT-2026-007</pre>
   </section>
 
   <section>
+    <span class="eyebrow">Hallazgo 8 · Pedido explícito del usuario</span>
+    <h2>Definir entidades por JSON, sin la restricción de caracteres del DSL de texto<span class="badge">feature</span></h2>
+    <p>La única forma de definir una entidad era la cadena <code>nombre:tipo:regla,...</code> por línea de comandos. Funciona bien para entidades pequeñas, pero tiene un límite de expresividad concreto: el propio delimitador (<code>:</code>) no puede aparecer dentro del valor de una regla. Un <code>default</code> de tipo fecha/hora (<code>2026-08-11T10:00:00</code>) o cualquier valor con <code>:</code> obligaba a reescribirlo o perdía información.</p>
+    <h3>Mejora</h3>
+    <p>Nueva vía de entrada <code>python generate_crud.py --json &lt;fichero&gt; [--architecture ...]</code>, alternativa a la cadena por CLI. Cada campo es un objeto JSON con sus reglas como claves (<code>required</code>, <code>not_blank</code>, <code>min</code>, <code>max</code>, <code>precision</code>, <code>scale</code>, <code>composite_unique</code>, <code>default</code>...). <code>parse_attributes_from_fields()</code> valida directamente sobre el JSON en vez de reconstruirlo como texto delimitado, así que <code>default</code> deja de tener restricción de caracteres — las comprobaciones de coherencia y el ensamblado final del atributo se extrajeron a funciones compartidas entre el DSL de texto y el JSON, para no duplicar reglas de validación.</p>
+    <pre>{
+  "entity": "FondoInversion",
+  "architecture": "hexagonal",
+  "package": "com.example.fondos",
+  "fields": [
+    {"name": "isin", "type": "string", "max": 12, "not_blank": true, "unique": true},
+    {"name": "patrimonio", "type": "decimal", "precision": 18, "scale": 2, "default": 0},
+    {"name": "activo", "type": "boolean", "required": true, "default": true}
+  ]
+}</pre>
+    <p>Verificado con <code>examples/fondoinversion.json</code> (25 campos reales de un microservicio de fondos de inversión): generado vía <code>--json --architecture hexagonal</code> y compilado con <code>mvn verify</code>, produce el mismo resultado que la ruta equivalente por CLI.</p>
+    <div class="callout danger">
+      <strong>Bug encontrado al usarlo con <code>package</code>/<code>endpoints</code> propios:</strong> <code>generator.py</code> ya pasaba <code>base_package</code>/<code>endpoints</code> a <code>documentation.get_documentation_html</code>, <code>templates.get_controller</code>/<code>get_controller_test</code> y <code>ports_generator.generate_ports_project_from_attrs</code>, pero esas funciones destino todavía no los aceptaban como parámetro — cualquier generación vía <code>--json</code> que indicara <code>package</code> o <code>endpoints</code> rompía con <code>TypeError</code> antes de escribir un solo fichero, en las tres arquitecturas. Corregido propagando el parámetro en toda la cadena y filtrando métodos/imports/mocks del controller y su test según los <code>endpoints</code> pedidos (commit <code>aa47a56</code>).
+    </div>
+  </section>
+
+  <section>
     <span class="eyebrow">Resultado</span>
     <h2>Estado final verificado</h2>
-    <p><code>python -m pytest -q</code> &#8594; 48 tests en verde, incluyendo <code>mvn verify</code> real sobre los cuatro proyectos de aceptación (uno de ellos ejercitando <code>composite_unique</code>, <code>default</code>, <code>text</code>, <code>decimal(precision,scale)</code> y el filtrado a la vez). El proyecto <code>crud-reportederivado/</code> con los 273 campos completos compila limpio y corre en Docker (<code>docker compose up</code>) con las 15 filas de prueba insertadas, paginación, filtrado y los dos manejadores de error nuevos verificados en vivo contra la API real.</p>
+    <p><code>python -m pytest -q</code> &#8594; 67 tests en verde (7 subtests), incluyendo <code>mvn verify</code> real sobre los proyectos de aceptación (uno ejercitando <code>composite_unique</code>, <code>default</code>, <code>text</code>, <code>decimal(precision,scale)</code> y el filtrado a la vez) y <code>tests/test_json_schema.py</code> cubriendo la ruta <code>--json</code>. El proyecto <code>crud-reportederivado/</code> con los 273 campos completos compila limpio y corre en Docker (<code>docker compose up</code>) con las 15 filas de prueba insertadas, paginación, filtrado y los dos manejadores de error nuevos verificados en vivo contra la API real. <code>crud-fondoinversion-hexagonal/</code> (25 campos, generado vía <code>--json</code>) compila igual en arquitectura hexagonal, confirmando que la vía JSON produce el mismo resultado que el DSL de texto.</p>
   </section>
 
 </main>

@@ -40,7 +40,7 @@
 <header>
   <a href="index.html">&larr; Informes crud-automation</a>
   <h1>Historial de commits, explicado</h1>
-  <p>Los 10 commits del repositorio, de más antiguo a más reciente, con qué cambió y por qué. Generado a partir de <code>git log --reverse --stat</code>.</p>
+  <p>Los 14 commits del repositorio, de más antiguo a más reciente, con qué cambió y por qué. Generado a partir de <code>git log --reverse --stat</code>.</p>
 </header>
 <main>
 
@@ -115,10 +115,39 @@
     <div class="stat">6 ficheros · <b>+102 / -11</b> líneas</div>
   </div>
 
+  <div class="commit">
+    <div class="meta"><span class="hash">abd2daf</span><span class="date">2026-08-11</span><span class="tag docs">docs</span></div>
+    <h2>docs: informes HTML del historial y regla del límite de 255 params</h2>
+    <p>Publica la primera versión de estos dos informes (<code>historial-commits.html</code>, <code>hallazgos-generador.html</code>) cubriendo los 10 commits anteriores, y añade <code>CLAUDE.md</code> con la regla del repositorio: cualquier anotación Lombok que genere un constructor con todos los campos debe pasar por <code>exceeds_constructor_param_limit(attrs)</code> igual que las plantillas actuales, verificado compilando un proyecto de más de 254 campos.</p>
+    <div class="stat">4 ficheros · <b>+343</b> líneas</div>
+  </div>
+
+  <div class="commit fix">
+    <div class="meta"><span class="hash">fa12969</span><span class="date">2026-08-11</span><span class="tag feat">feature</span></div>
+    <h2>feat: filtrado genérico por query params + corrige errores 500</h2>
+    <p>Pedido explícito del usuario: el listado solo paginaba, sin forma de filtrar. Añade una clase <code>{Entity}Specifications</code> (Spring Data JPA Criteria) generada con un <code>case</code> por campo que convierte el <code>String</code> del query param al tipo Java real antes de comparar, combinable con <code>page</code>/<code>size</code>/<code>sort</code>. De paso corrige dos bugs encontrados levantando <code>crud-reportederivado</code> en Docker real: <code>?sort=</code> con una propiedad inexistente y un filtro con formato inválido devolvían <code>500</code> con stack trace filtrado al cliente en vez de <code>400</code>; ambos ganan <code>@ExceptionHandler</code> dedicado. Ver <a href="hallazgos-generador.html">detalle en el informe de hallazgos</a>.</p>
+    <div class="stat">9 ficheros · <b>+264 / -16</b> líneas</div>
+  </div>
+
+  <div class="commit">
+    <div class="meta"><span class="hash">ab93031</span><span class="date">2026-08-11</span><span class="tag feat">feature</span></div>
+    <h2>feat: define entidades por JSON, sin la restricción de caracteres del DSL</h2>
+    <p>Añade <code>python generate_crud.py --json &lt;fichero&gt; [--architecture ...]</code> como alternativa a la cadena <code>nombre:tipo:regla,...</code>: cada campo es un objeto JSON con sus reglas como claves (<code>required</code>, <code>not_blank</code>, <code>min</code>, <code>max</code>, <code>precision</code>, <code>scale</code>, <code>composite_unique</code>, <code>default</code>...). Al validar directamente sobre el JSON en vez de reconstruirlo como texto delimitado por <code>:</code>/<code>,</code>, los valores de <code>default</code> dejan de tener restricción de caracteres (el DSL de texto obligaba a quitar los <code>:</code> de un <code>default</code> tipo fecha/hora, por ejemplo). Incluye <code>examples/fondoinversion.json</code> (25 campos) como caso real, generado vía <code>--json</code> y verificado con <code>mvn verify</code>.</p>
+    <div class="stat">9 ficheros · <b>+684 / -37</b> líneas</div>
+  </div>
+
+  <div class="commit fix">
+    <div class="meta"><span class="hash">aa47a56</span><span class="date">2026-08-11</span><span class="tag fix">fix</span></div>
+    <h2>fix: propaga package y endpoints del JSON a controller, tests y docs generados</h2>
+    <p><code>generator.py</code> ya llamaba a <code>documentation.get_documentation_html</code>, <code>templates.get_controller</code>/<code>get_controller_test</code> y <code>ports_generator.generate_ports_project_from_attrs</code> pasando <code>base_package</code>/<code>endpoints</code>, pero esas funciones destino todavía no los aceptaban como parámetro: cualquier generación vía <code>--json</code> que indicara <code>package</code> o <code>endpoints</code> rompía con <code>TypeError</code>, tanto en <code>layered</code> como en <code>hexagonal</code>/<code>clean</code>. Ahora el controller y su test filtran métodos, imports y mocks según los endpoints pedidos, y el paquete base se propaga también en la ruta hexagonal/clean igual que ya hacía la layered. De paso corrige <code>examples/fondoinversion.json</code>: la regla <code>positive</code> era incompatible con el <code>default: 0</code> de <code>patrimonio</code> y <code>numero_participes</code>.</p>
+    <div class="stat">11 ficheros · <b>+639 / -274</b> líneas</div>
+  </div>
+
   <div class="callout">
-    Los dos últimos commits (<code>e1fddaf</code>, <code>e051e14</code>) son los que motivaron este informe:
+    Los commits <code>e1fddaf</code> a <code>fa12969</code> son los que motivaron el informe de hallazgos:
     surgieron al usar el generador contra un esquema de producción real en vez de los ejemplos de 3-10 campos
-    con los que se había probado hasta entonces. Detalle completo en
+    con los que se había probado hasta entonces. <code>ab93031</code> y <code>aa47a56</code> añaden después una
+    segunda vía de entrada (JSON en vez del DSL de texto) para esas mismas entidades grandes. Detalle completo en
     <a href="hallazgos-generador.html">hallazgos-generador.html</a>.
   </div>
 
