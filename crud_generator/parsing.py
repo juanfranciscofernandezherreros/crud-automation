@@ -337,21 +337,38 @@ def _finalize_attribute(name, type_name, validations):
     (parse_attributes_from_fields)."""
     precision = validations.pop("precision", None)
     scale = validations.pop("scale", None)
+    enum_values = validations.pop("values", None)
+    references = validations.pop("references", None)
     is_audit = name in AUDIT_FIELD_NAMES
     if validations and (name == "id" or is_audit):
         raise DefinitionError(
             f"El atributo gestionado '{name}' no admite validaciones de entrada."
         )
 
-    sql_type = SQL_TYPES[type_name]
-    if precision is not None:
-        sql_type = f"DECIMAL({precision}, {scale})"
+    camel_name = to_camel_case(name)
+    sql_column = name
+    if type_name == "enum":
+        enum_class = camel_name[0].upper() + camel_name[1:]
+        java_type = enum_class
+        sql_type = f"VARCHAR({max(len(value) for value in enum_values)})"
+    elif type_name == "reference":
+        enum_class = None
+        java_type = references
+        sql_type = "INT"
+        sql_column = f"{name}_id"
+    else:
+        enum_class = None
+        java_type = JAVA_TYPES[type_name]
+        sql_type = SQL_TYPES[type_name]
+        if precision is not None:
+            sql_type = f"DECIMAL({precision}, {scale})"
 
     return {
         "name": name,
-        "camel_name": to_camel_case(name),
-        "java_type": JAVA_TYPES[type_name],
+        "camel_name": camel_name,
+        "java_type": java_type,
         "sql_type": sql_type,
+        "sql_column": sql_column,
         "type": type_name,
         "precision": int(precision) if precision is not None else None,
         "scale": int(scale) if scale is not None else None,
@@ -359,6 +376,10 @@ def _finalize_attribute(name, type_name, validations):
         "is_id": name.lower() == "id",
         "is_date": type_name in ["datetime", "date"],
         "is_audit": is_audit,
+        "enum_values": enum_values,
+        "enum_class": enum_class,
+        "references": references,
+        "reference_table": f"{references.lower()}s" if references else None,
     }
 
 
@@ -388,11 +409,96 @@ _JSON_KNOWN_KEYS = {
     "precision",
     "scale",
     "composite_unique",
+    "values",
+    "references",
 }
+
+ENUM_VALUE_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]*$")
+
+
+def _build_enum_values(field, name):
+    values = field.get("values")
+    if not isinstance(values, list) or len(values) < 2:
+        raise DefinitionError(
+            f"'enum' en '{name}' necesita 'values' con al menos dos opciones."
+        )
+    normalized = []
+    seen = set()
+    for value in values:
+        if not isinstance(value, str) or not ENUM_VALUE_PATTERN.fullmatch(value):
+            raise DefinitionError(
+                f"Cada valor de 'values' en '{name}' debe ser MAYUSCULAS_CON_GUION_BAJO "
+                f"empezando por letra: '{value}'."
+            )
+        if value in seen:
+            raise DefinitionError(f"El valor '{value}' está duplicado en '{name}'.")
+        seen.add(value)
+        normalized.append(value)
+    return normalized
 
 
 def _build_validations_from_field(field, name, type_name):
     validations = {}
+
+    if type_name == "enum":
+        unsupported = {"min", "max", "positive", "not_blank", "precision", "scale"} & set(field)
+        if unsupported:
+            raise DefinitionError(
+                f"{', '.join(sorted(unsupported))} no se aplican a 'enum' ('{name}')."
+            )
+        validations["values"] = _build_enum_values(field, name)
+        if field.get("required"):
+            validations["required"] = True
+        if field.get("unique"):
+            validations["unique"] = True
+        if field.get("index"):
+            validations["index"] = True
+        if "composite_unique" in field:
+            group = field["composite_unique"]
+            if not isinstance(group, str) or not GROUP_NAME_PATTERN.fullmatch(group.lower()):
+                raise DefinitionError(
+                    f"El grupo '{group}' de '{name}' debe usar lower_snake_case."
+                )
+            validations["composite_unique"] = group.lower()
+        if "default" in field:
+            default_value = str(field["default"])
+            if default_value not in validations["values"]:
+                raise DefinitionError(
+                    f"El valor por defecto de '{name}' debe ser uno de "
+                    f"{validations['values']}."
+                )
+            validations["default"] = default_value
+        return validations
+
+    if type_name == "reference":
+        unsupported = {
+            "min", "max", "positive", "not_blank", "precision", "scale", "default",
+        } & set(field)
+        if unsupported:
+            raise DefinitionError(
+                f"{', '.join(sorted(unsupported))} no se aplican a 'reference' ('{name}')."
+            )
+        references = field.get("references")
+        if not isinstance(references, str) or not ENTITY_NAME_PATTERN.fullmatch(references):
+            raise DefinitionError(
+                f"'reference' en '{name}' necesita 'references' con el nombre de "
+                "otra entidad definida en el mismo fichero."
+            )
+        validations["references"] = references[0].upper() + references[1:]
+        if field.get("required"):
+            validations["required"] = True
+        if field.get("unique"):
+            validations["unique"] = True
+        if field.get("index"):
+            validations["index"] = True
+        if "composite_unique" in field:
+            group = field["composite_unique"]
+            if not isinstance(group, str) or not GROUP_NAME_PATTERN.fullmatch(group.lower()):
+                raise DefinitionError(
+                    f"El grupo '{group}' de '{name}' debe usar lower_snake_case."
+                )
+            validations["composite_unique"] = group.lower()
+        return validations
 
     for key in _JSON_FLAG_KEYS:
         if not field.get(key):
@@ -484,8 +590,8 @@ def parse_attributes_from_fields(field_specs):
             raise DefinitionError(f"El atributo '{name}' está duplicado.")
 
         type_name = field.get("type")
-        if type_name not in JAVA_TYPES:
-            accepted_types = ", ".join(JAVA_TYPES)
+        if type_name not in JAVA_TYPES and type_name not in ("enum", "reference"):
+            accepted_types = ", ".join((*JAVA_TYPES, "enum", "reference"))
             raise DefinitionError(
                 f"Tipo desconocido '{type_name}' para '{name}'. "
                 f"Tipos admitidos: {accepted_types}."

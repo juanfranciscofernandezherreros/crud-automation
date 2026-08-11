@@ -23,6 +23,12 @@ def get_pom_xml(entity_lower):
         <org.mapstruct.version>1.5.5.Final</org.mapstruct.version>
         <springdoc.version>2.5.0</springdoc.version>
         <lombok.version>1.18.30</lombok.version>
+        <cucumber.version>7.18.1</cucumber.version>
+        <allure.version>2.27.0</allure.version>
+        <!-- Version reciente explicita: la que trae por defecto Spring Boot 3.2.x
+             (1.19.x) negocia mal la version de API con Docker Desktop actual y
+             falla con "client version ... too old" al usar Testcontainers. -->
+        <testcontainers.version>1.20.4</testcontainers.version>
     </properties>
 
     <dependencies>
@@ -34,6 +40,8 @@ def get_pom_xml(entity_lower):
         <dependency><groupId>io.micrometer</groupId><artifactId>micrometer-registry-prometheus</artifactId><scope>runtime</scope></dependency>
         <dependency><groupId>io.micrometer</groupId><artifactId>micrometer-tracing-bridge-otel</artifactId></dependency>
         <dependency><groupId>io.opentelemetry</groupId><artifactId>opentelemetry-exporter-otlp</artifactId></dependency>
+        <!-- Envia cada linea de log a Loki (ver logback-spring.xml y docker-compose.yml) -->
+        <dependency><groupId>com.github.loki4j</groupId><artifactId>loki-logback-appender</artifactId><version>1.5.2</version><scope>runtime</scope></dependency>
 
         <!-- Flyway con versión explícita hardcodeada para evitar errores en el POM -->
         <dependency>
@@ -55,7 +63,34 @@ def get_pom_xml(entity_lower):
         <dependency><groupId>org.springframework.security</groupId><artifactId>spring-security-test</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.testcontainers</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.testcontainers</groupId><artifactId>postgresql</artifactId><scope>test</scope></dependency>
+
+        <!-- Cucumber (BDD, HTTP real contra la app en un puerto aleatorio) + Allure -->
+        <dependency><groupId>io.cucumber</groupId><artifactId>cucumber-java</artifactId><version>${{cucumber.version}}</version><scope>test</scope></dependency>
+        <dependency><groupId>io.cucumber</groupId><artifactId>cucumber-junit-platform-engine</artifactId><version>${{cucumber.version}}</version><scope>test</scope></dependency>
+        <dependency><groupId>io.cucumber</groupId><artifactId>cucumber-spring</artifactId><version>${{cucumber.version}}</version><scope>test</scope></dependency>
+        <dependency><groupId>org.junit.platform</groupId><artifactId>junit-platform-suite</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>io.qameta.allure</groupId><artifactId>allure-cucumber7-jvm</artifactId><version>${{allure.version}}</version><scope>test</scope></dependency>
+        <dependency><groupId>io.rest-assured</groupId><artifactId>rest-assured</artifactId><scope>test</scope></dependency>
     </dependencies>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>io.cucumber</groupId>
+                <artifactId>cucumber-bom</artifactId>
+                <version>${{cucumber.version}}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.testcontainers</groupId>
+                <artifactId>testcontainers-bom</artifactId>
+                <version>${{testcontainers.version}}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <build>
         <plugins>
@@ -84,8 +119,54 @@ def get_pom_xml(entity_lower):
                     </annotationProcessorPaths>
                 </configuration>
             </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!-- RunCucumberTest se excluye de 'mvn test'/'mvn verify' por defecto:
+                         necesita Docker funcionando de verdad para Testcontainers (no solo
+                         disponible: en Windows con Docker Desktop es habitual que la
+                         negociacion de API sobre el named pipe falle aunque 'docker' vaya
+                         bien por CLI). Ejecutalo aparte con 'mvn test -Pcucumber', donde
+                         Docker sea fiable (CI, Linux, WSL2). -->
+                    <excludes>
+                        <exclude>**/RunCucumberTest.java</exclude>
+                    </excludes>
+                    <systemPropertyVariables>
+                        <allure.results.directory>${{project.build.directory}}/allure-results</allure.results.directory>
+                    </systemPropertyVariables>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>io.qameta.allure</groupId>
+                <artifactId>allure-maven</artifactId>
+                <version>2.12.0</version>
+                <configuration>
+                    <reportVersion>${{allure.version}}</reportVersion>
+                    <resultsDirectory>${{project.build.directory}}/allure-results</resultsDirectory>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <profile>
+            <!-- 'mvn test -Pcucumber' o 'mvn verify -Pcucumber': ejecuta ademas los
+                 escenarios de RunCucumberTest (ver exclude de arriba). -->
+            <id>cucumber</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <excludes combine.self="override"/>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>
 """
 
@@ -118,6 +199,7 @@ services:
       - APP_SECURITY_USER=${{APP_SECURITY_USER:?Set APP_SECURITY_USER}}
       - APP_SECURITY_PASSWORD=${{APP_SECURITY_PASSWORD:?Set APP_SECURITY_PASSWORD}}
       - OTEL_EXPORTER_OTLP_ENDPOINT=${{OTEL_EXPORTER_OTLP_ENDPOINT:-http://host.docker.internal:4318/v1/traces}}
+      - LOKI_URL=${{LOKI_URL:-http://loki:3100}}
     depends_on:
       db:
         condition: service_healthy
@@ -135,22 +217,288 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      - app
+
+  loki:
+    image: grafana/loki:2.9.8
+    command: ["-config.file=/etc/loki/loki-config.yml"]
+    volumes:
+      - ./observability/loki-config.yml:/etc/loki/loki-config.yml:ro
+    ports:
+      - "3100:3100"
+
+  grafana:
+    image: grafana/grafana:11.1.4
+    environment:
+      - GF_SECURITY_ADMIN_USER=${{APP_SECURITY_USER:?Set APP_SECURITY_USER}}
+      - GF_SECURITY_ADMIN_PASSWORD=${{APP_SECURITY_PASSWORD:?Set APP_SECURITY_PASSWORD}}
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+      - loki
 """
 
-def get_env_example():
-    return """# Copia este fichero a ".env" (mismo directorio que docker-compose.yml) y
-# ajusta los valores antes de ejecutar "docker compose up". docker compose
-# carga ".env" automaticamente; sin el, "docker compose up" falla porque
-# las cuatro variables son obligatorias en docker-compose.yml.
-POSTGRES_USER=app_user
+
+def get_prometheus_config(entity_lower):
+    return f"""global:
+  scrape_interval: 10s
+
+scrape_configs:
+  - job_name: "{entity_lower}-service"
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["app:8080"]
+"""
+
+
+def get_loki_config():
+    return """auth_enabled: false
+
+server:
+  http_listen_port: 3100
+
+common:
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: 2024-01-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+"""
+
+
+def get_grafana_datasources():
+    return """apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+  - name: Loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+"""
+
+
+def get_grafana_dashboard_provider():
+    return """apiVersion: 1
+
+providers:
+  - name: default
+    orgId: 1
+    folder: ""
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards
+"""
+
+
+def get_grafana_business_dashboard(entity_name, entity_lower):
+    """Dashboard con metricas de negocio/operacion del endpoint de listado de la
+    entidad: throughput, tasa de error, latencia p95 y logs recientes desde Loki."""
+    uid = f"{entity_lower}-overview"
+    return f"""{{
+  "uid": "{uid}",
+  "title": "{entity_name} - Vision general",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": {{"from": "now-1h", "to": "now"}},
+  "panels": [
+    {{
+      "id": 1,
+      "title": "Peticiones/seg a /api/{entity_lower}s",
+      "type": "timeseries",
+      "gridPos": {{"h": 8, "w": 12, "x": 0, "y": 0}},
+      "datasource": {{"type": "prometheus", "uid": "Prometheus"}},
+      "targets": [
+        {{
+          "expr": "sum(rate(http_server_requests_seconds_count{{uri=~\\"/api/{entity_lower}s.*\\"}}[1m]))",
+          "legendFormat": "req/s"
+        }}
+      ]
+    }},
+    {{
+      "id": 2,
+      "title": "Tasa de error 5xx",
+      "type": "timeseries",
+      "gridPos": {{"h": 8, "w": 12, "x": 12, "y": 0}},
+      "datasource": {{"type": "prometheus", "uid": "Prometheus"}},
+      "targets": [
+        {{
+          "expr": "sum(rate(http_server_requests_seconds_count{{uri=~\\"/api/{entity_lower}s.*\\",status=~\\"5..\\"}}[1m]))",
+          "legendFormat": "errores/s"
+        }}
+      ]
+    }},
+    {{
+      "id": 3,
+      "title": "Latencia p95",
+      "type": "timeseries",
+      "gridPos": {{"h": 8, "w": 12, "x": 0, "y": 8}},
+      "datasource": {{"type": "prometheus", "uid": "Prometheus"}},
+      "targets": [
+        {{
+          "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{{uri=~\\"/api/{entity_lower}s.*\\"}}[5m])) by (le))",
+          "legendFormat": "p95 (s)"
+        }}
+      ]
+    }},
+    {{
+      "id": 4,
+      "title": "Logs recientes",
+      "type": "logs",
+      "gridPos": {{"h": 8, "w": 12, "x": 12, "y": 8}},
+      "datasource": {{"type": "loki", "uid": "Loki"}},
+      "targets": [
+        {{"expr": "{{{{service_name=\\"{entity_lower}-service\\"}}}}"}}
+      ]
+    }}
+  ]
+}}
+"""
+
+_ENV_DEFAULTS = """POSTGRES_USER=app_user
 POSTGRES_PASSWORD=cambiar-en-produccion
 APP_SECURITY_USER=admin
 APP_SECURITY_PASSWORD=otra-clave-segura
 """
 
 
+def get_env_example():
+    return """# Copia este fichero a ".env" (mismo directorio que docker-compose.yml) y
+# ajusta los valores antes de ejecutar "docker compose up". docker compose
+# carga ".env" automaticamente; sin el, "docker compose up" falla porque
+# las cuatro variables son obligatorias en docker-compose.yml.
+""" + _ENV_DEFAULTS
+
+
+def get_env_default():
+    """Fichero ".env" lista para usar en desarrollo local, con las mismas
+    credenciales de ejemplo que ".env.example", para que "docker compose up"
+    funcione nada mas generar el proyecto sin un paso manual de copia. Nunca
+    se versiona: GITIGNORE excluye ".env"."""
+    return (
+        "# Generado automaticamente para desarrollo local. Cambia estos valores\n"
+        "# antes de desplegar en cualquier entorno compartido.\n"
+    ) + _ENV_DEFAULTS
+
+
 GITIGNORE = """target/
 .env
+"""
+
+
+def get_github_actions_workflow(entity_lower):
+    """CI minima: compila y ejecuta 'mvn verify' (incluye los tests de
+    Testcontainers, para los que el runner de GitHub Actions ya trae Docker)
+    en cada push/PR. Cachea el repositorio local de Maven entre ejecuciones."""
+    return f"""name: CI
+
+on:
+  push:
+    branches: ["main", "master"]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configurar JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: "21"
+          distribution: "temurin"
+          cache: maven
+
+      - name: mvn verify (compila, unit tests y tests de Testcontainers)
+        run: mvn --batch-mode --no-transfer-progress verify
+
+      - name: Cucumber (perfil 'cucumber', necesita Docker real para Testcontainers)
+        run: mvn --batch-mode --no-transfer-progress test -Pcucumber -Dtest=RunCucumberTest
+
+      - name: Publicar resultados de test
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crud-{entity_lower}-test-results
+          path: |
+            target/surefire-reports/
+            target/failsafe-reports/
+            target/allure-results/
+          if-no-files-found: ignore
+"""
+
+
+def get_logback_spring_xml(entity_lower):
+    """Ademas de la consola, envia cada linea a Loki con la label
+    'service_name={entity_lower}-service' que usa el dashboard de Grafana
+    generado en observability/grafana/dashboards/."""
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+    <property name="CONSOLE_LOG_PATTERN"
+              value="%d{{yyyy-MM-dd HH:mm:ss.SSS}} %-5level [%thread] traceId=%X{{traceId:-}} spanId=%X{{spanId:-}} %logger{{36}} - %msg%n"/>
+
+    <springProperty scope="context" name="lokiUrl" source="LOKI_URL" defaultValue="http://localhost:3100"/>
+
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder><pattern>${{CONSOLE_LOG_PATTERN}}</pattern></encoder>
+    </appender>
+
+    <appender name="LOKI" class="com.github.loki4j.logback.Loki4jAppender">
+        <http>
+            <url>${{lokiUrl}}/loki/api/v1/push</url>
+        </http>
+        <format>
+            <label>
+                <pattern>service_name={entity_lower}-service</pattern>
+            </label>
+            <message>
+                <pattern>${{CONSOLE_LOG_PATTERN}}</pattern>
+            </message>
+        </format>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="LOKI"/>
+    </root>
+</configuration>
 """
 
 
@@ -264,7 +612,18 @@ public class {entity_name} {{
 }}
 """
 
-def get_dto(class_name, dto_fields):
+def get_enum_class(enum_class, values):
+    constants = ", ".join(values)
+    return f"""package com.example.crud.entity;
+
+public enum {enum_class} {{
+    {constants}
+}}
+"""
+
+
+def get_dto(class_name, dto_fields, enum_import_lines=""):
+    enum_imports = f"{enum_import_lines}\n" if enum_import_lines else ""
     return f"""package com.example.crud.dto;
 
 import jakarta.validation.constraints.*;
@@ -272,33 +631,55 @@ import lombok.Data;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.math.BigDecimal;
-
+{enum_imports}
 @Data
 public class {class_name} {{
 {dto_fields}
 }}
 """
 
-def get_mapper(entity_name):
+def get_mapper(entity_name, reference_attrs=None):
+    """reference_attrs: atributos 'reference' de la entidad. MapStruct no puede
+    convertir el Integer '{campo}Id' del DTO en la entidad relacionada (eso exige
+    una consulta a su repositorio), asi que esos campos se ignoran aqui y los
+    resuelve {entity_name}ServiceImpl (ver get_service_impl)."""
+    reference_attrs = reference_attrs or []
+    ignore_lines = "\n".join(
+        f'    @Mapping(target = "{attr["camel_name"]}", ignore = true)'
+        for attr in reference_attrs
+    )
+    ignore_block = f"{ignore_lines}\n" if ignore_lines else ""
+
+    def suffix(attr):
+        return attr["camel_name"][0].upper() + attr["camel_name"][1:]
+
+    response_lines = "\n".join(
+        f'    @Mapping(target = "{attr["camel_name"]}Id", '
+        f'expression = "java(entity.get{suffix(attr)}() != null ? '
+        f'entity.get{suffix(attr)}().getId() : null)")'
+        for attr in reference_attrs
+    )
+    response_block = f"{response_lines}\n" if response_lines else ""
+    mapping_import = "\nimport org.mapstruct.Mapping;" if reference_attrs else ""
     return f"""package com.example.crud.mapper;
 
 import com.example.crud.dto.*;
 import com.example.crud.entity.{entity_name};
 import org.mapstruct.BeanMapping;
-import org.mapstruct.Mapper;
+import org.mapstruct.Mapper;{mapping_import}
 import org.mapstruct.MappingTarget;
 import org.mapstruct.NullValuePropertyMappingStrategy;
 
 @Mapper(componentModel = "spring")
 public interface {entity_name}Mapper {{
-    {entity_name} toEntity({entity_name}CreateDTO dto);
-    {entity_name} toEntity({entity_name}UpdateDTO dto);
-    {entity_name}ResponseDTO toDto({entity_name} entity);
+{ignore_block}    {entity_name} toEntity({entity_name}CreateDTO dto);
+{ignore_block}    {entity_name} toEntity({entity_name}UpdateDTO dto);
+{response_block}    {entity_name}ResponseDTO toDto({entity_name} entity);
 
-    @BeanMapping(nullValuePropertyMappingStrategy = NullValuePropertyMappingStrategy.IGNORE)
+{ignore_block}    @BeanMapping(nullValuePropertyMappingStrategy = NullValuePropertyMappingStrategy.IGNORE)
     void updateEntityFromPatchDto({entity_name}PatchDTO dto, @MappingTarget {entity_name} entity);
 
-    void updateEntityFromUpdateDto({entity_name}UpdateDTO dto, @MappingTarget {entity_name} entity);
+{ignore_block}    void updateEntityFromUpdateDto({entity_name}UpdateDTO dto, @MappingTarget {entity_name} entity);
 }}
 """
 
@@ -367,7 +748,61 @@ public interface {entity_name}Service {{
 }}
 """
 
-def get_service_impl(entity_name):
+def get_service_impl(entity_name, reference_attrs=None):
+    """reference_attrs: atributos 'reference' de la entidad (@ManyToOne). El
+    mapper los ignora (ver get_mapper), asi que aqui se resuelven a mano contra
+    el repositorio de la entidad referenciada antes de guardar."""
+    reference_attrs = reference_attrs or []
+
+    def suffix(attr):
+        return attr["camel_name"][0].upper() + attr["camel_name"][1:]
+
+    reference_imports = "\n".join(
+        f"import com.example.crud.entity.{attr['references']};\n"
+        f"import com.example.crud.repository.{attr['references']}Repository;"
+        for attr in reference_attrs
+    )
+    reference_imports_block = f"{reference_imports}\n" if reference_imports else ""
+
+    reference_fields = "\n".join(
+        f"    private final {attr['references']}Repository {attr['camel_name']}Repository;"
+        for attr in reference_attrs
+    )
+    reference_fields_block = f"\n{reference_fields}" if reference_fields else ""
+
+    create_resolutions = "\n".join(
+        f"        entity.set{suffix(attr)}(resolve{suffix(attr)}(createDTO.get{suffix(attr)}Id()));"
+        for attr in reference_attrs
+    )
+    create_resolutions_block = f"\n{create_resolutions}" if create_resolutions else ""
+
+    update_resolutions = "\n".join(
+        f"        entity.set{suffix(attr)}(resolve{suffix(attr)}(updateDTO.get{suffix(attr)}Id()));"
+        for attr in reference_attrs
+    )
+    update_resolutions_block = f"\n{update_resolutions}" if update_resolutions else ""
+
+    patch_resolutions = "\n".join(
+        f"        if (patchDTO.get{suffix(attr)}Id() != null) {{\n"
+        f"            entity.set{suffix(attr)}(resolve{suffix(attr)}(patchDTO.get{suffix(attr)}Id()));\n"
+        "        }"
+        for attr in reference_attrs
+    )
+    patch_resolutions_block = f"\n{patch_resolutions}" if patch_resolutions else ""
+
+    resolvers = "\n\n".join(
+        f"    private {attr['references']} resolve{suffix(attr)}(Integer {attr['camel_name']}Id) {{\n"
+        f"        if ({attr['camel_name']}Id == null) {{\n"
+        "            return null;\n"
+        "        }\n"
+        f"        return {attr['camel_name']}Repository.findById({attr['camel_name']}Id)\n"
+        f'                .orElseThrow(() -> new ResourceNotFoundException('
+        f'"{attr["references"]} no encontrado: " + {attr["camel_name"]}Id));\n'
+        "    }"
+        for attr in reference_attrs
+    )
+    resolvers_block = f"\n\n{resolvers}" if resolvers else ""
+
     return f"""package com.example.crud.service.impl;
 
 import com.example.crud.dto.*;
@@ -375,7 +810,7 @@ import com.example.crud.entity.{entity_name};
 import com.example.crud.exception.ResourceNotFoundException;
 import com.example.crud.mapper.{entity_name}Mapper;
 import com.example.crud.repository.{entity_name}Repository;
-import com.example.crud.service.{entity_name}Service;
+{reference_imports_block}import com.example.crud.service.{entity_name}Service;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -388,12 +823,12 @@ import org.springframework.transaction.annotation.Transactional;
 public class {entity_name}ServiceImpl implements {entity_name}Service {{
 
     private final {entity_name}Repository repository;
-    private final {entity_name}Mapper mapper;
+    private final {entity_name}Mapper mapper;{reference_fields_block}
 
     @Override
     @Transactional
     public {entity_name}ResponseDTO create({entity_name}CreateDTO createDTO) {{
-        {entity_name} entity = mapper.toEntity(createDTO);
+        {entity_name} entity = mapper.toEntity(createDTO);{create_resolutions_block}
         return mapper.toDto(repository.save(entity));
     }}
 
@@ -413,7 +848,7 @@ public class {entity_name}ServiceImpl implements {entity_name}Service {{
     @Transactional
     public {entity_name}ResponseDTO update(Integer id, {entity_name}UpdateDTO updateDTO) {{
         {entity_name} entity = getEntity(id);
-        mapper.updateEntityFromUpdateDto(updateDTO, entity);
+        mapper.updateEntityFromUpdateDto(updateDTO, entity);{update_resolutions_block}
         return mapper.toDto(repository.save(entity));
     }}
 
@@ -421,7 +856,7 @@ public class {entity_name}ServiceImpl implements {entity_name}Service {{
     @Transactional
     public {entity_name}ResponseDTO patch(Integer id, {entity_name}PatchDTO patchDTO) {{
         {entity_name} entity = getEntity(id);
-        mapper.updateEntityFromPatchDto(patchDTO, entity);
+        mapper.updateEntityFromPatchDto(patchDTO, entity);{patch_resolutions_block}
         return mapper.toDto(repository.save(entity));
     }}
 
@@ -434,7 +869,7 @@ public class {entity_name}ServiceImpl implements {entity_name}Service {{
     private {entity_name} getEntity(Integer id) {{
         return repository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("{entity_name} no encontrado con ID: " + id));
-    }}
+    }}{resolvers_block}
 }}
 """
 
@@ -900,6 +1335,7 @@ def get_controller_test(
     has_required_fields,
     invalid_assignments,
     endpoints=None,
+    enum_import_lines="",
 ):
     endpoints = set(endpoints) if endpoints else set(DEFAULT_ENDPOINTS)
 
@@ -999,6 +1435,8 @@ def get_controller_test(
     needs_get = bool({"list", "get"} & endpoints)
 
     imports = []
+    if enum_import_lines:
+        imports.append(enum_import_lines)
     if needs_idempotency:
         imports.append(f"import com.example.crud.dto.{entity_name}CreateDTO;")
     if needs_patch_dto:
@@ -1150,6 +1588,212 @@ class PostgreSQLIntegrationTest {{
     void apiRejectsUnauthenticatedRequests() throws Exception {{
         mockMvc.perform(get("/api/{entity_lower}s"))
                 .andExpect(status().isUnauthorized());
+    }}
+}}
+"""
+
+
+def get_cucumber_runner():
+    """Unico por proyecto. El nombre termina en 'Test' a propósito: es el
+    patron por defecto que reconoce Surefire/Failsafe, y el que dispara la
+    ejecucion real de los .feature via el motor 'cucumber' de JUnit 5. Las
+    clases de pasos (p.ej. PedidoSteps) NO siguen ese patron a proposito,
+    para que Surefire no intente ejecutarlas como si fueran tests JUnit por
+    si mismas."""
+    return """package com.example.crud.cucumber;
+
+import io.cucumber.junit.platform.engine.Constants;
+import org.junit.platform.suite.api.ConfigurationParameter;
+import org.junit.platform.suite.api.IncludeEngines;
+import org.junit.platform.suite.api.SelectClasspathResource;
+import org.junit.platform.suite.api.Suite;
+
+@Suite
+@IncludeEngines("cucumber")
+@SelectClasspathResource("features")
+@ConfigurationParameter(key = Constants.GLUE_PROPERTY_NAME, value = "com.example.crud.cucumber")
+@ConfigurationParameter(
+        key = Constants.PLUGIN_PROPERTY_NAME,
+        value = "io.qameta.allure.cucumber7jvm.AllureCucumber7Jvm")
+public class RunCucumberTest {
+}
+"""
+
+
+def get_cucumber_spring_configuration():
+    """Contexto Spring compartido por todas las clases de pasos: un unico
+    Testcontainers de Postgres para toda la ejecucion de Cucumber, igual que
+    PostgreSQLIntegrationTest pero arrancado a mano. Cucumber no ejecuta esta
+    clase como un test JUnit 5 (solo la referencia via
+    @CucumberContextConfiguration), asi que @Testcontainers/@Container -que
+    dependen del ciclo de vida BeforeAllCallback de JUnit 5- nunca arrancarian
+    el contenedor: 'Mapped port can only be obtained after the container is
+    started'."""
+    return """package com.example.crud.cucumber;
+
+import io.cucumber.spring.CucumberContextConfiguration;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.testcontainers.containers.PostgreSQLContainer;
+
+@CucumberContextConfiguration
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+public class CucumberSpringConfiguration {
+
+    static final PostgreSQLContainer<?> POSTGRES =
+            new PostgreSQLContainer<>("postgres:16-alpine");
+
+    static {
+        POSTGRES.start();
+    }
+
+    @DynamicPropertySource
+    static void properties(DynamicPropertyRegistry registry) {
+        registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
+        registry.add("spring.datasource.username", POSTGRES::getUsername);
+        registry.add("spring.datasource.password", POSTGRES::getPassword);
+        registry.add("spring.flyway.url", POSTGRES::getJdbcUrl);
+        registry.add("spring.flyway.user", POSTGRES::getUsername);
+        registry.add("spring.flyway.password", POSTGRES::getPassword);
+        registry.add("app.security.user", () -> "cucumber-admin");
+        registry.add("app.security.password", () -> "cucumber-password");
+    }
+}
+"""
+
+
+def get_cucumber_feature(entity_name, entity_lower, endpoints, has_reference):
+    """has_reference: si la entidad tiene un campo 'reference', se omite el
+    escenario de alta valida (necesitaria crear antes la entidad referenciada,
+    fuera del alcance de este generador) y solo se cubren list/validacion/404,
+    que no dependen de otra entidad ya existente en la base de datos."""
+    endpoints = set(endpoints)
+    scenarios = []
+    if "list" in endpoints:
+        scenarios.append(f"""
+  Scenario: Listar {entity_lower}s
+    When se listan los {entity_lower}s
+    Then la respuesta tiene estado 200""")
+    if "create" in endpoints and not has_reference:
+        scenarios.append(f"""
+  Scenario: Crear un {entity_lower} valido
+    When se crea un {entity_lower} valido
+    Then la respuesta tiene estado 201
+    When se consulta el {entity_lower} creado
+    Then la respuesta tiene estado 200""")
+    if "create" in endpoints:
+        scenarios.append(f"""
+  Scenario: Crear un {entity_lower} sin campos obligatorios
+    When se crea un {entity_lower} sin campos obligatorios
+    Then la respuesta tiene estado 400""")
+    if "get" in endpoints:
+        scenarios.append(f"""
+  Scenario: Consultar un {entity_lower} inexistente
+    When se consulta el {entity_lower} con id 999999
+    Then la respuesta tiene estado 404""")
+    body = "\n".join(scenarios)
+    return f"""Feature: CRUD de {entity_name}
+{body}
+"""
+
+
+def get_cucumber_steps(entity_name, entity_lower, create_assignments, has_required_fields, endpoints, enum_import_lines=""):
+    endpoints = set(endpoints)
+    enum_imports = f"{enum_import_lines}\n" if enum_import_lines else ""
+
+    steps = []
+    if "list" in endpoints:
+        steps.append(f"""
+    @When("se listan los {entity_lower}s")
+    public void seListanLos{entity_name}s() {{
+        response = authenticated().get("/api/{entity_lower}s");
+    }}""")
+    if "create" in endpoints:
+        steps.append(f"""
+    @When("se crea un {entity_lower} valido")
+    public void seCreaUn{entity_name}Valido() throws Exception {{
+        {entity_name}CreateDTO dto = new {entity_name}CreateDTO();
+{create_assignments}
+        response = authenticated()
+                .header("Idempotency-Key", java.util.UUID.randomUUID().toString())
+                .contentType("application/json")
+                .body(objectMapper.writeValueAsString(dto))
+                .post("/api/{entity_lower}s");
+        if (response.statusCode() == 201) {{
+            createdId = response.jsonPath().getInt("id");
+        }}
+    }}
+
+    @When("se crea un {entity_lower} sin campos obligatorios")
+    public void seCreaUn{entity_name}SinCamposObligatorios() {{
+        response = authenticated()
+                .header("Idempotency-Key", java.util.UUID.randomUUID().toString())
+                .contentType("application/json")
+                .body("{{}}")
+                .post("/api/{entity_lower}s");
+    }}""")
+    if "get" in endpoints:
+        steps.append(f"""
+    @When("se consulta el {entity_lower} con id {{int}}")
+    public void seConsultaEl{entity_name}ConId(Integer id) {{
+        response = authenticated().get("/api/{entity_lower}s/" + id);
+    }}
+
+    @When("se consulta el {entity_lower} creado")
+    public void seConsultaEl{entity_name}Creado() {{
+        response = authenticated().get("/api/{entity_lower}s/" + createdId);
+    }}""")
+    steps_block = "\n".join(steps)
+
+    validation_note = "" if has_required_fields else (
+        f"    // {entity_name} no tiene campos obligatorios: el escenario de "
+        "alta invalida solo comprueba que un cuerpo vacio no rompe la API.\n"
+    )
+
+    return f"""package com.example.crud.cucumber;
+
+import com.example.crud.dto.{entity_name}CreateDTO;
+{enum_imports}import com.fasterxml.jackson.databind.ObjectMapper;
+import io.cucumber.java.en.Then;
+import io.cucumber.java.en.When;
+import io.restassured.RestAssured;
+import io.restassured.response.Response;
+import io.restassured.specification.RequestSpecification;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.test.web.server.LocalServerPort;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+public class {entity_name}Steps {{
+
+    @LocalServerPort
+    private int port;
+
+    @Value("${{app.security.user}}")
+    private String username;
+
+    @Value("${{app.security.password}}")
+    private String password;
+
+    private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
+    private Response response;
+    private Integer createdId;
+
+{validation_note}    private RequestSpecification authenticated() {{
+        return RestAssured.given()
+                .port(port)
+                .auth().preemptive().basic(username, password);
+    }}
+{steps_block}
+
+    @Then("la respuesta tiene estado {{int}}")
+    public void laRespuestaTieneEstado(int statusCode) {{
+        assertEquals(statusCode, response.statusCode());
     }}
 }}
 """

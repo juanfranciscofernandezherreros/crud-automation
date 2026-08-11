@@ -50,18 +50,29 @@ def extract_json_path(args):
     return args, json_path
 
 
+def extract_force(args):
+    args = list(args)
+    force = False
+    for option in ("--force", "-f"):
+        while option in args:
+            args.remove(option)
+            force = True
+    return args, force
+
+
 def main(args=None):
     args = sys.argv[1:] if args is None else args
     try:
         args, architecture = extract_architecture(args)
         args, json_path = extract_json_path(args)
+        args, force = extract_force(args)
     except DefinitionError as error:
         print(f"Error: {error}", file=sys.stderr)
         return 2
 
     if json_path:
         try:
-            base_dir = generate_project_from_json(json_path, architecture)
+            base_dir = generate_project_from_json(json_path, architecture, overwrite=force)
         except DefinitionError as error:
             print(f"Error: {error}", file=sys.stderr)
             return 2
@@ -74,15 +85,19 @@ def main(args=None):
     if len(args) < 2:
         print(
             "Uso: python generate_crud.py <Entidad> <attr:tipo,...> "
-            "[--architecture layered|hexagonal|clean]"
+            "[--architecture layered|hexagonal|clean] [--force]"
         )
         print(
             "  o: python generate_crud.py --json <definicion.json> "
-            "[--architecture layered|hexagonal|clean]"
+            "[--architecture layered|hexagonal|clean] [--force]"
         )
         print(
             'Ejemplo: python generate_crud.py Producto '
             '"id:int, nombre:string, precio:float"'
+        )
+        print(
+            "--force regenera un directorio ya existente en vez de fallar; "
+            "las migraciones ya aplicadas se conservan (ver docs/index.html)."
         )
         return 1
 
@@ -90,7 +105,7 @@ def main(args=None):
         architecture = architecture or choose_architecture()
         entity_name = normalize_entity_name(args[0])
         attrs_str = " ".join(args[1:])
-        base_dir = generate_project(entity_name, attrs_str, architecture)
+        base_dir = generate_project(entity_name, attrs_str, architecture, overwrite=force)
     except DefinitionError as error:
         print(f"Error: {error}", file=sys.stderr)
         return 2

@@ -79,6 +79,13 @@ class GeneratedProjectAcceptanceTest(unittest.TestCase):
             "sin variables definidas.",
         )
         env_contents = env_example.read_text(encoding="utf-8")
+        env_file = project_directory / ".env"
+        self.assertTrue(
+            env_file.is_file(),
+            f"{env_file} no se generó: 'docker compose up' exigiría copiar "
+            ".env.example a mano antes de poder arrancar.",
+        )
+        env_file_contents = env_file.read_text(encoding="utf-8")
         for var in (
             "POSTGRES_USER",
             "POSTGRES_PASSWORD",
@@ -86,7 +93,12 @@ class GeneratedProjectAcceptanceTest(unittest.TestCase):
             "APP_SECURITY_PASSWORD",
         ):
             self.assertIn(f"{var}=", env_contents)
+            self.assertIn(f"{var}=", env_file_contents)
         self.assertTrue((project_directory / ".gitignore").is_file())
+        gitignore_contents = (project_directory / ".gitignore").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(".env", gitignore_contents)
 
     def _run_maven_tests(self, project_directory, workspace):
         command = [MAVEN]

@@ -1,7 +1,10 @@
 """Generación de arquitecturas hexagonal y clean."""
 
-from . import documentation, ports_templates, templates
+import os
+
+from . import documentation, migrations, ports_templates, templates
 from .architectures import DEFAULT_BASE_PACKAGE
+from .observability import write_observability_stack
 from .fields import (
     exceeds_constructor_param_limit,
     generate_domain_update_statements,
@@ -10,15 +13,23 @@ from .fields import (
     generate_invalid_test_dto_assignments,
     generate_plain_fields,
     generate_specification_filter_cases,
-    generate_sql_fields,
-    generate_sql_indexes,
     generate_table_unique_constraints_annotation,
     generate_test_dto_assignments,
     has_default,
     has_required_input,
 )
-from .parsing import DEFAULT_ENDPOINTS, parse_attributes
+from .parsing import DEFAULT_ENDPOINTS, DefinitionError, parse_attributes
 from .writer import write_file as _write_file
+
+
+def _guard_existing_directory(base_dir, overwrite):
+    if os.path.isdir(base_dir) and not overwrite:
+        raise DefinitionError(
+            f"El directorio '{base_dir}' ya existe. Vuelve a ejecutar con --force "
+            "para regenerarlo (los ficheros que ya no formen parte de la entidad "
+            "no se borran, y las migraciones ya aplicadas se conservan; ver "
+            "'migraciones incrementales' en la documentacion generada)."
+        )
 
 
 def package_path(package):
@@ -29,13 +40,21 @@ def java_path(java_root, package, filename):
     return f"{java_root}/{package_path(package)}/{filename}"
 
 
-def generate_ports_project(entity_name, attrs_str, layout):
+def generate_ports_project(entity_name, attrs_str, layout, overwrite=False):
     attrs = parse_attributes(attrs_str)
-    return generate_ports_project_from_attrs(entity_name, attrs, layout, attrs_str)
+    return generate_ports_project_from_attrs(
+        entity_name, attrs, layout, attrs_str, overwrite=overwrite
+    )
 
 
 def generate_ports_project_from_attrs(
-    entity_name, attrs, layout, attrs_str, base_package=None, endpoints=None
+    entity_name,
+    attrs,
+    layout,
+    attrs_str,
+    base_package=None,
+    endpoints=None,
+    overwrite=False,
 ):
     base_package = base_package or DEFAULT_BASE_PACKAGE
     endpoints = endpoints or list(DEFAULT_ENDPOINTS)
@@ -47,6 +66,7 @@ def generate_ports_project_from_attrs(
 
     entity_lower = entity_name.lower()
     base_dir = f"crud-{entity_lower}-{layout.name}"
+    _guard_existing_directory(base_dir, overwrite)
     main_java = f"{base_dir}/src/main/java"
     test_java = f"{base_dir}/src/test/java"
     resources = f"{base_dir}/src/main/resources"
@@ -65,18 +85,24 @@ def generate_ports_project_from_attrs(
         templates.get_docker_compose(entity_lower),
     )
     write_file(f"{base_dir}/.env.example", templates.get_env_example())
+    write_file(f"{base_dir}/.env", templates.get_env_default())
     write_file(f"{base_dir}/.gitignore", templates.GITIGNORE)
+    write_file(
+        f"{base_dir}/.github/workflows/ci.yml",
+        templates.get_github_actions_workflow(entity_lower),
+    )
     write_file(
         f"{resources}/application.yml", templates.get_application_yml(entity_lower)
     )
-    table_name = f"{entity_lower}s"
     write_file(
-        f"{resources}/db/migration/V1__Create_Table_{entity_name}.sql",
-        templates.get_sql_migration(
-            entity_lower,
-            generate_sql_fields(attrs, table_name),
-            generate_sql_indexes(attrs, table_name),
-        ),
+        f"{resources}/logback-spring.xml",
+        templates.get_logback_spring_xml(entity_lower),
+    )
+    write_observability_stack(write_file, base_dir, entity_name, entity_lower)
+    table_name = f"{entity_lower}s"
+    migrations.write_migration(
+        resources, entity_name, entity_lower, table_name, attrs, write_file,
+        templates.get_sql_migration,
     )
     write_file(
         java_path(main_java, "com.example.crud", "CrudApplication.java"),

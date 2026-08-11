@@ -33,7 +33,7 @@ class CliTest(unittest.TestCase):
 
         self.assertEqual(0, exit_code)
         generate_project.assert_called_once_with(
-            "Producto", "id:int,nombre:string", "layered"
+            "Producto", "id:int,nombre:string", "layered", overwrite=False
         )
 
     @patch("crud_generator.cli.generate_project", return_value="crud-producto-hexagonal")
@@ -50,8 +50,41 @@ class CliTest(unittest.TestCase):
 
         self.assertEqual(0, exit_code)
         generate_project.assert_called_once_with(
-            "Producto", "id:int,nombre:string", "hexagonal"
+            "Producto", "id:int,nombre:string", "hexagonal", overwrite=False
         )
+
+    @patch("crud_generator.cli.generate_project", return_value="crud-producto")
+    def test_force_flag_is_propagated_as_overwrite(self, generate_project):
+        with contextlib.redirect_stdout(io.StringIO()):
+            exit_code = main(["Producto", "id:int,nombre:string", "--force"])
+
+        self.assertEqual(0, exit_code)
+        generate_project.assert_called_once_with(
+            "Producto", "id:int,nombre:string", "layered", overwrite=True
+        )
+
+    def test_existing_directory_without_force_is_rejected(self):
+        import os
+        import tempfile
+
+        from crud_generator.writer import write_file
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cwd = os.getcwd()
+            os.chdir(tmp)
+            try:
+                write_file("crud-producto/marker.txt", "manual edit")
+                stderr = io.StringIO()
+                with contextlib.redirect_stderr(stderr):
+                    exit_code = main(["Producto", "id:int,nombre:string"])
+                self.assertEqual(2, exit_code)
+                self.assertIn("--force", stderr.getvalue())
+                self.assertTrue(
+                    os.path.isfile("crud-producto/marker.txt"),
+                    "no debe tocar el directorio existente sin --force",
+                )
+            finally:
+                os.chdir(cwd)
 
 
 if __name__ == "__main__":

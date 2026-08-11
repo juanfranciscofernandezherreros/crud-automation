@@ -90,6 +90,73 @@ Reglas:
 
 El `docs/index.html` generado muestra el comando `--json` reproducible.
 
+`crud_generator/schema/entity.schema.json` (JSON Schema Draft 7) documenta
+formalmente este formato — util para autocompletado/validacion en el editor
+referenciandolo con `"$schema": "../crud_generator/schema/entity.schema.json"`
+en tu fichero de entidad. `python -m pytest tests/test_entity_schema.py` lo
+valida contra los ejemplos de `examples/` cuando `jsonschema` esta instalado
+(dependencia opcional solo para ese test; el generador en si no la necesita).
+
+### Varias entidades relacionadas (`entities`)
+
+Para relaciones `@ManyToOne` entre dos o mas entidades, usa `entities` en vez
+de `entity`/`fields` (solo con `architecture: "layered"`, o sin indicarla):
+
+```json
+{
+  "project": "ventas",
+  "package": "com.miempresa.ventas",
+  "entities": [
+    {
+      "entity": "Cliente",
+      "fields": [
+        {"name": "id", "type": "int"},
+        {"name": "nombre", "type": "string", "not_blank": true, "required": true}
+      ]
+    },
+    {
+      "entity": "Pedido",
+      "fields": [
+        {"name": "id", "type": "int"},
+        {"name": "cliente", "type": "reference", "references": "Cliente", "required": true, "index": true},
+        {"name": "total", "type": "decimal", "precision": 12, "scale": 2, "required": true, "positive": true}
+      ]
+    }
+  ]
+}
+```
+
+Un campo `type: "reference"` con `references: "<OtraEntidad>"` genera, para
+`cliente`:
+
+- La columna `cliente_id INT [NOT NULL] REFERENCES clientes(id)` en la
+  migracion Flyway (con `CREATE INDEX` si ademas se indica `index: true`).
+- `@ManyToOne(fetch = FetchType.LAZY)` + `@JoinColumn` en la entidad JPA.
+- Un campo `clienteId` (`Integer`) en cada DTO, no el objeto completo (evita
+  ciclos de serializacion y sobre-carga de datos).
+- En `PedidoServiceImpl`, resolucion contra `ClienteRepository`: `create`
+  y `update` siempre resuelven `clienteId` (404 `ResourceNotFoundException`
+  si no existe); `patch` solo lo toca si el DTO lo incluye.
+
+`references` puede apuntar a otra entidad de la misma lista o a si misma
+(relaciones reflexivas, p.ej. un arbol de categorias vía `padre`). Las
+dependencias circulares entre dos entidades distintas (A referencia a B y B
+a A) no estan soportadas y el generador lo rechaza explicitamente. El
+directorio del proyecto usa `project` si se indica, o el nombre de la
+primera entidad listada.
+
+### Campos `enum`
+
+```json
+{"name": "estado", "type": "enum", "values": ["PENDIENTE", "PAGADO", "ENVIADO"], "required": true, "default": "PENDIENTE"}
+```
+
+`values` son las constantes del enum Java generado (`MAYUSCULAS_CON_GUION_BAJO`,
+al menos dos). El generador escribe una clase `Estado.java` junto a la entidad,
+anota el campo con `@Enumerated(EnumType.STRING)` y agrega
+`CHECK (estado IN (...))` en Flyway. Disponible solo vía JSON (no en el DSL de
+texto) y, por ahora, solo con `architecture: "layered"`.
+
 ## Campos y reglas
 
 El formato es `nombre:tipo[:regla]`, con campos separados por comas. Debe
@@ -168,6 +235,35 @@ python .\generate_crud.py OperacionFinanciera `
   --architecture clean
 
 mvn -f .\crud-operacionfinanciera-clean\pom.xml verify
+```
+
+## Pruebas Cucumber (BDD) y reporte Allure
+
+Cada entidad recibe `src/test/resources/features/{entidad}.feature` (listar,
+alta valida + consulta, alta sin campos obligatorios, consulta inexistente —
+en Gherkin en castellano) y su clase de pasos `{Entidad}Steps.java`, que
+llaman a la API real por HTTP (RestAssured) contra la app arrancada en un
+puerto aleatorio con un Postgres real de Testcontainers, no una base de datos
+simulada. Si la entidad tiene un campo `reference`, el escenario de alta
+valida se omite (exigiria crear antes la entidad referenciada).
+
+Estos escenarios **no** se ejecutan con `mvn verify`: `RunCucumberTest`
+(la clase que Surefire reconoceria por defecto, al terminar en `Test`) esta
+excluida explicitamente, porque Testcontainers necesita Docker respondiendo
+de verdad, no solo "instalado" — en Windows con Docker Desktop es habitual
+que la negociacion de version de API falle sobre el named pipe aunque
+`docker` funcione bien por CLI. Ejecutalos aparte, en un entorno con Docker
+fiable (Linux, WSL2, CI):
+
+```powershell
+mvn test -Pcucumber -Dtest=RunCucumberTest
+```
+
+El plugin `allure-cucumber7-jvm` vuelca los resultados en
+`target/allure-results/`; genera el HTML navegable con:
+
+```powershell
+mvn allure:serve
 ```
 
 ## Documentacion HTML generada
@@ -251,6 +347,40 @@ Sin ese fichero `docker compose up` falla con
 `required variable POSTGRES_USER is missing a value`. `.env` está en el
 `.gitignore` que se genera junto al proyecto, para no versionar credenciales.
 
+Cada proyecto incluye ademas:
+
+- **CI** (`.github/workflows/ci.yml`): ejecuta `mvn verify` (incluye los
+  tests de Testcontainers) en cada push/PR contra `main`/`master`, con cache
+  de Maven y los reportes de Surefire/Failsafe como artefacto.
+- **Observabilidad completa**: junto a `/actuator/prometheus` (ya expuesto),
+  `docker-compose.yml` añade `prometheus`, `loki` y `grafana`. La app envía
+  cada log a Loki (`logback-spring.xml` + `loki-logback-appender`, label
+  `service_name={entidad}-service`) ademas de a consola. Grafana viene
+  aprovisionado (`observability/`) con datasources de Prometheus/Loki y un
+  dashboard (`{entidad}-overview.json`) con peticiones/seg, tasa de error
+  5xx, latencia p95 y logs recientes — abre `http://localhost:3000` con las
+  credenciales de `APP_SECURITY_USER`/`APP_SECURITY_PASSWORD`.
+
+### Regenerar un proyecto existente (`--force`)
+
+Por defecto, generar sobre un directorio que ya existe falla (para no pisar
+cambios manuales sin avisar):
+
+```powershell
+python .\generate_crud.py --json .\fondoinversion.json --force
+```
+
+Con `--force`, los ficheros de codigo/config se sobrescriben, pero las
+migraciones Flyway **no**: si `V1__Create_Table_*.sql` ya existe, el
+generador anade `V{n}__Update_Table_*.sql` solo con las columnas nuevas (no
+detecta columnas eliminadas ni cambios de tipo — eso exige revisión manual).
+Una columna nueva marcada `required`/`not_blank` sin `default` se crea como
+`NULL` en esa migracion incremental (Postgres rechaza `NOT NULL` sin valor en
+una tabla con filas) con un aviso en el propio SQL; hay que rellenarla y
+forzar `NOT NULL` en una migracion posterior. En un proyecto multi-entidad,
+la numeracion de version (`V1`, `V2`, ...) es unica para todo el proyecto
+aunque varias entidades compartan `db/migration/`.
+
 ## Validacion
 
 El generador falla antes de escribir cuando encuentra nombres invalidos,
@@ -279,16 +409,21 @@ generate_crud.py          Punto de entrada compatible
 crud_generator/
   cli.py                  Interfaz de linea de comandos
   architectures.py        Definicion de layouts
-  generator.py            Generacion layered
+  generator.py            Generacion layered (una o varias entidades)
   ports_generator.py      Generacion hexagonal y clean
+  json_schema.py          Carga y validacion cruzada del JSON (single/multi-entidad)
+  migrations.py           Migraciones Flyway, incrementales al regenerar
+  observability.py        Escritura del stack Prometheus/Loki/Grafana
   documentation.py        Documentacion HTML dinamica
-  parsing.py              Analisis y validacion de entradas
+  parsing.py              Analisis y validacion de entradas (incluye enum/reference)
   fields.py               Campos Java, DTO y SQL
   templates.py            Plantillas compartidas y layered
   ports_templates.py      Plantillas de puertos y adaptadores
   types.py                Mapeos de tipos
   writer.py               Escritura en disco
+  schema/entity.schema.json  JSON Schema del formato de entrada
 tests/                    Pruebas de la automatizacion
+examples/                 Ficheros JSON de ejemplo (entidad simple y multi-entidad)
 ```
 
 Los proyectos generados pueden borrarse y regenerarse en cualquier momento:

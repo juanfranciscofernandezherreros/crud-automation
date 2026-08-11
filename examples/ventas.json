@@ -1,0 +1,31 @@
+{
+  "project": "ventas",
+  "architecture": "layered",
+  "package": "com.miempresa.ventas",
+  "endpoints": ["list", "get", "create", "update", "patch", "delete"],
+  "entities": [
+    {
+      "entity": "Cliente",
+      "fields": [
+        {"name": "id", "type": "int"},
+        {"name": "nombre", "type": "string", "max": 100, "not_blank": true, "required": true},
+        {"name": "email", "type": "string", "max": 150, "not_blank": true, "required": true, "unique": true}
+      ]
+    },
+    {
+      "entity": "Pedido",
+      "fields": [
+        {"name": "id", "type": "int"},
+        {"name": "cliente", "type": "reference", "references": "Cliente", "required": true, "index": true},
+        {
+          "name": "estado",
+          "type": "enum",
+          "values": ["PENDIENTE", "PAGADO", "ENVIADO"],
+          "required": true,
+          "default": "PENDIENTE"
+        },
+        {"name": "total", "type": "decimal", "precision": 12, "scale": 2, "required": true, "positive": true}
+      ]
+    }
+  ]
+}

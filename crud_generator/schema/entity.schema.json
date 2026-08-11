@@ -1,0 +1,164 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/crud-automation/crud_generator/schema/entity.schema.json",
+  "title": "Definicion de entidad(es) para crud_generator",
+  "description": "Formato aceptado por 'python generate_crud.py --json <fichero>'. Acepta dos formas mutuamente excluyentes: una sola entidad ('entity'/'fields') o varias relacionadas ('entities'). Referencia este fichero desde tu editor con \"$schema\": \"./node_modules/../crud_generator/schema/entity.schema.json\" (ruta relativa al JSON de la entidad) para autocompletado y validacion en vivo.",
+  "oneOf": [
+    { "$ref": "#/definitions/singleEntityDocument" },
+    { "$ref": "#/definitions/multiEntityDocument" }
+  ],
+  "definitions": {
+    "architecture": {
+      "type": "string",
+      "enum": ["layered", "hexagonal", "clean"],
+      "description": "Por defecto 'layered'. El formato multi-entidad ('entities') solo admite 'layered' por ahora."
+    },
+    "package": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(\\.[a-z][a-z0-9]*)*$",
+      "description": "Paquete base Java, minusculas separadas por puntos. Por defecto com.example.crud."
+    },
+    "endpoints": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "enum": ["list", "get", "create", "update", "patch", "delete"] },
+      "uniqueItems": true,
+      "description": "Subconjunto de endpoints a generar. Por defecto, los seis."
+    },
+    "entityName": {
+      "type": "string",
+      "pattern": "^[A-Za-z][A-Za-z0-9]*$"
+    },
+    "fieldName": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*$",
+      "description": "lower_snake_case."
+    },
+    "groupName": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*$"
+    },
+    "scalarField": {
+      "type": "object",
+      "required": ["name", "type"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "$ref": "#/definitions/fieldName" },
+        "type": {
+          "type": "string",
+          "enum": ["int", "string", "text", "float", "double", "decimal", "boolean", "datetime", "date"]
+        },
+        "required": { "type": "boolean" },
+        "not_blank": { "type": "boolean", "description": "Solo string/text." },
+        "positive": { "type": "boolean", "description": "Solo tipos numericos." },
+        "unique": { "type": "boolean" },
+        "index": { "type": "boolean" },
+        "min": { "type": "number" },
+        "max": { "type": "number" },
+        "precision": { "type": "integer", "minimum": 1, "maximum": 38, "description": "Solo decimal; exige 'scale' junto a esta clave." },
+        "scale": { "type": "integer", "minimum": 0, "description": "Solo decimal; exige 'precision' junto a esta clave." },
+        "composite_unique": { "$ref": "#/definitions/groupName" },
+        "default": {
+          "description": "Cualquier tipo: se valida contra el 'type' del campo. Para datetime usa ISO completo, p.ej. '2026-01-31T10:30:00'."
+        }
+      }
+    },
+    "enumField": {
+      "type": "object",
+      "required": ["name", "type", "values"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "$ref": "#/definitions/fieldName" },
+        "type": { "const": "enum" },
+        "values": {
+          "type": "array",
+          "minItems": 2,
+          "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" },
+          "uniqueItems": true,
+          "description": "Constantes del enum Java generado, MAYUSCULAS_CON_GUION_BAJO."
+        },
+        "required": { "type": "boolean" },
+        "unique": { "type": "boolean" },
+        "index": { "type": "boolean" },
+        "composite_unique": { "$ref": "#/definitions/groupName" },
+        "default": {
+          "type": "string",
+          "description": "Debe ser uno de los 'values' declarados."
+        }
+      }
+    },
+    "referenceField": {
+      "type": "object",
+      "required": ["name", "type", "references"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "$ref": "#/definitions/fieldName",
+          "description": "Nombre de la relacion (sin sufijo '_id'); genera la columna '{name}_id'."
+        },
+        "type": { "const": "reference" },
+        "references": {
+          "$ref": "#/definitions/entityName",
+          "description": "Nombre de otra entidad del mismo 'entities' (o de esta misma, para relaciones reflexivas)."
+        },
+        "required": { "type": "boolean" },
+        "unique": { "type": "boolean" },
+        "index": { "type": "boolean" },
+        "composite_unique": { "$ref": "#/definitions/groupName" }
+      }
+    },
+    "field": {
+      "oneOf": [
+        { "$ref": "#/definitions/scalarField" },
+        { "$ref": "#/definitions/enumField" },
+        { "$ref": "#/definitions/referenceField" }
+      ]
+    },
+    "fieldsList": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/definitions/field" },
+      "description": "Debe incluir exactamente un campo 'id' de tipo int, sin reglas adicionales."
+    },
+    "singleEntityDocument": {
+      "type": "object",
+      "required": ["entity", "fields"],
+      "additionalProperties": false,
+      "properties": {
+        "entity": { "$ref": "#/definitions/entityName" },
+        "architecture": { "$ref": "#/definitions/architecture" },
+        "package": { "$ref": "#/definitions/package" },
+        "endpoints": { "$ref": "#/definitions/endpoints" },
+        "fields": { "$ref": "#/definitions/fieldsList" }
+      }
+    },
+    "multiEntityDocument": {
+      "type": "object",
+      "required": ["entities"],
+      "additionalProperties": false,
+      "properties": {
+        "project": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9_-]*$",
+          "description": "Nombre del directorio generado (crud-{project}). Por defecto, la primera entidad de la lista."
+        },
+        "architecture": { "$ref": "#/definitions/architecture", "enum": ["layered"] },
+        "package": { "$ref": "#/definitions/package" },
+        "endpoints": { "$ref": "#/definitions/endpoints" },
+        "entities": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["entity", "fields"],
+            "additionalProperties": false,
+            "properties": {
+              "entity": { "$ref": "#/definitions/entityName" },
+              "fields": { "$ref": "#/definitions/fieldsList" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

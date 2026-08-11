@@ -1,17 +1,21 @@
 import unittest
 
 from crud_generator.fields import (
+    format_default_java_literal,
     generate_dto_fields,
     generate_entity_fields,
+    generate_enum_import_lines,
     generate_invalid_test_dto_assignments,
     generate_specification_filter_cases,
     generate_sql_fields,
     generate_sql_indexes,
     generate_table_unique_constraints_annotation,
     generate_test_dto_assignments,
+    get_enum_types,
+    get_valid_test_value,
     has_default,
 )
-from crud_generator.parsing import parse_attributes
+from crud_generator.parsing import parse_attributes, parse_attributes_from_fields
 
 
 class DtoFieldsTest(unittest.TestCase):
@@ -162,6 +166,59 @@ class FloatingPointSqlTypeTest(unittest.TestCase):
         self.assertIn("temperatura REAL NOT NULL", sql)
         self.assertIn("humedad DOUBLE PRECISION NOT NULL", sql)
         self.assertNotIn("DECIMAL", sql)
+
+
+class EnumFieldGenerationTest(unittest.TestCase):
+    def _attrs(self, default=None):
+        field = {
+            "name": "estado",
+            "type": "enum",
+            "values": ["PENDIENTE", "PAGADO", "ENVIADO"],
+            "required": True,
+        }
+        if default is not None:
+            field["default"] = default
+        return parse_attributes_from_fields([{"name": "id", "type": "int"}, field])
+
+    def test_sql_adds_check_in_with_declared_values(self):
+        sql = generate_sql_fields(self._attrs(), table_name="pedidos")
+        self.assertIn(
+            "estado VARCHAR(9) NOT NULL CHECK "
+            "(estado IN ('PENDIENTE', 'PAGADO', 'ENVIADO'))",
+            sql,
+        )
+
+    def test_sql_default_is_quoted_like_a_string(self):
+        sql = generate_sql_fields(self._attrs(default="PENDIENTE"), table_name="pedidos")
+        self.assertIn("DEFAULT 'PENDIENTE'", sql)
+
+    def test_entity_field_gets_enumerated_annotation(self):
+        entity_fields = generate_entity_fields(self._attrs(default="PENDIENTE"))
+        self.assertIn("@Enumerated(EnumType.STRING)", entity_fields)
+        self.assertIn("private Estado estado = Estado.PENDIENTE;", entity_fields)
+
+    def test_java_default_literal_qualifies_the_enum_constant(self):
+        attrs = self._attrs(default="PAGADO")
+        estado = attrs[1]
+        self.assertEqual("Estado.PAGADO", format_default_java_literal(estado))
+
+    def test_valid_test_value_uses_first_declared_constant(self):
+        attrs = self._attrs()
+        estado = attrs[1]
+        self.assertEqual("Estado.PENDIENTE", get_valid_test_value(estado))
+
+    def test_enum_import_lines_reference_the_entity_package(self):
+        attrs = self._attrs()
+        self.assertEqual(
+            "import com.example.crud.entity.Estado;",
+            generate_enum_import_lines(attrs, "com.example.crud.entity"),
+        )
+
+    def test_get_enum_types_maps_class_to_declared_values(self):
+        attrs = self._attrs()
+        self.assertEqual(
+            {"Estado": ["PENDIENTE", "PAGADO", "ENVIADO"]}, get_enum_types(attrs)
+        )
 
 
 if __name__ == "__main__":
