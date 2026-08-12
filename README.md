@@ -10,6 +10,9 @@ recreables y estan excluidas de Git.
 - Python 3.10 o superior, sin dependencias externas.
 - Java 21 y Maven 3.9 para compilar los proyectos generados.
 - Docker para ejecutar las pruebas PostgreSQL de Testcontainers.
+- Opcional pero recomendado: `git config core.hooksPath .githooks` una vez
+  por clon, para activar el hook `pre-push` que exige informe en
+  `informes/historial-commits.html` por cada commit (regla en `CLAUDE.md`).
 
 ## Uso
 

@@ -26,7 +26,15 @@ entradas anteriores. Reusa el formato ya usado en ese fichero:
 - La entrada va al final de `<main>`, antes del `<div class="callout">` si lo
   hay.
 - El commit ya existe cuando se escribe el informe (se necesita su hash
-  real), así que el informe se añade en un commit de seguimiento aparte
-  (p. ej. `docs: informe del commit <hash>`) — nunca reescribiendo con
-  `--amend` el commit que describe.
+  real), así que el informe se añade en un commit de seguimiento aparte cuyo
+  mensaje **debe empezar exactamente por** `docs: informe de` (p. ej.
+  `docs: informe del commit <hash>`, `docs: informe de los commits <a> y
+  <b>`) — nunca reescribiendo con `--amend` el commit que describe.
 - Si el usuario no pide crear un commit, esta regla no se dispara.
+
+Esta regla está verificada, no solo documentada: `.githooks/pre-push`
+bloquea el `git push` si algún commit del rango a enviar (que no sea él
+mismo un `docs: informe de...`) no tiene su hash en
+`informes/historial-commits.html`. Se activa una vez por clon con
+`git config core.hooksPath .githooks` (no se aplica solo con tener el
+fichero en el repositorio).

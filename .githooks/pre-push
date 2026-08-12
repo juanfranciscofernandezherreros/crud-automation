@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# Bloquea el push si algun commit nuevo (que no sea el propio "docs: informe
+# de...") no tiene su entrada correspondiente en informes/historial-commits.html.
+#
+# La regla ya estaba en CLAUDE.md como texto ("cada commit lleva un informe"),
+# pero solo como convencion: nada impedia que una sesion la olvidara, el mismo
+# punto ciego que tuvo el limite de 254 parametros de constructor antes de
+# moverse a codigo (ver fields.exceeds_constructor_param_limit). Este hook la
+# hace verificable en vez de solo documentada.
+#
+# Activacion (una vez por clon, no se aplica solo con tenerlo en el repo):
+#   git config core.hooksPath .githooks
+
+set -euo pipefail
+
+ZERO_SHA="0000000000000000000000000000000000000000"
+REPORT="informes/historial-commits.html"
+missing=""
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+    # Borrado de rama remota: nada que revisar.
+    [ "$local_sha" = "$ZERO_SHA" ] && continue
+
+    if [ "$remote_sha" = "$ZERO_SHA" ]; then
+        # Rama nueva sin punto de comparacion remoto: usa el merge-base con
+        # origin/master si existe, para no listar todo el historial local.
+        if git rev-parse --verify -q origin/master >/dev/null; then
+            range="$(git merge-base "$local_sha" origin/master 2>/dev/null || echo "$local_sha")..$local_sha"
+        else
+            range="$local_sha"
+        fi
+    else
+        range="$remote_sha..$local_sha"
+    fi
+
+    for commit in $(git rev-list --no-merges "$range" -- 2>/dev/null || true); do
+        subject="$(git show -s --format=%s "$commit")"
+        case "$subject" in
+            "docs: informe de"*) continue ;;
+        esac
+        short="$(git rev-parse --short=7 "$commit")"
+        if ! grep -q "$short" "$REPORT"; then
+            missing="$missing  - $short $subject\n"
+        fi
+    done
+done
+
+if [ -n "$missing" ]; then
+    echo "pre-push: faltan entradas en $REPORT para:" >&2
+    printf "%b" "$missing" >&2
+    echo "Añade una entrada por commit (formato y regla en CLAUDE.md) antes de hacer push." >&2
+    exit 1
+fi
+
+exit 0

@@ -1,0 +1,3 @@
+# Los hooks de git son scripts de shell: un shebang con CRLF los rompe en un
+# bash estricto (WSL/Linux), aunque git-bash en Windows sea mas tolerante.
+.githooks/* text eol=lf
