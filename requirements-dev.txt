@@ -1,0 +1,4 @@
+# Dependencias para desarrollar y probar el generador (no para usarlo: el
+# propio generador sigue sin dependencias externas, ver README.md).
+pytest
+jsonschema

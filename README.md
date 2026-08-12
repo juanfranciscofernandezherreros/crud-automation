@@ -7,7 +7,9 @@ recreables y estan excluidas de Git.
 
 ## Requisitos
 
-- Python 3.10 o superior, sin dependencias externas.
+- Python 3.10 o superior. El generador en sí (`generate_crud.py`) no tiene
+  dependencias externas; para desarrollarlo y correr su suite de tests hace
+  falta `pip install -r requirements-dev.txt` (pytest + jsonschema).
 - Java 21 y Maven 3.9 para compilar los proyectos generados.
 - Docker para ejecutar las pruebas PostgreSQL de Testcontainers.
 - Opcional pero recomendado: `git config core.hooksPath .githooks` una vez
@@ -512,6 +514,7 @@ limites incoherentes o ausencia de `id`. Los errores de uso devuelven codigo 1
 y las definiciones invalidas codigo 2.
 
 ```powershell
+pip install -r requirements-dev.txt
 python -m pytest -q
 ```
 
