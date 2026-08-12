@@ -266,14 +266,20 @@ services:
   kafka:
     image: apache/kafka:3.7.0
     ports:
-      - "9092:9092"
+      - "29092:29092"
     environment:
       - KAFKA_NODE_ID=1
       - KAFKA_PROCESS_ROLES=broker,controller
-      - KAFKA_LISTENERS=PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
-      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://localhost:9092
+      - KAFKA_LISTENERS=PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,PLAINTEXT_HOST://0.0.0.0:29092
+      # Dos listeners con nombres distintos: 'kafka:9092' es el que resuelven los
+      # contenedores de la red de docker compose (p.ej. 'app'); 'localhost:29092'
+      # es el que resuelve el host. Un solo listener advertised como 'localhost'
+      # rompe al cliente 'app', que tras el bootstrap recibe esa metadata y
+      # intenta reconectar a su propio 'localhost' en vez de al broker.
+      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
       - KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER
-      - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      - KAFKA_INTER_BROKER_LISTENER_NAME=PLAINTEXT
       - KAFKA_CONTROLLER_QUORUM_VOTERS=1@localhost:9093
       - KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1
 
@@ -293,7 +299,10 @@ WORKDIR /app
 COPY . .
 RUN mvn clean package -DskipTests
 
-FROM eclipse-temurin:21-jre-alpine
+# Imagen glibc (no alpine/musl): el store RocksDB de Kafka Streams carga una
+# libreria nativa (librocksdbjni) enlazada contra libstdc++.so.6 de glibc, que
+# no existe en alpine y hace fallar el arranque con UnsatisfiedLinkError.
+FROM eclipse-temurin:21-jre-jammy
 WORKDIR /app
 COPY --from=builder /app/target/*.jar app.jar
 EXPOSE 8080
