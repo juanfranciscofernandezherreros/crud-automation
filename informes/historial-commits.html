@@ -199,6 +199,13 @@
     <div class="stat">5 ficheros · <b>+115 / -157</b> líneas</div>
   </div>
 
+  <div class="commit fix">
+    <div class="meta"><span class="hash">13bb512</span><span class="date">2026-08-12</span><span class="tag fix">fix</span></div>
+    <h2>fix: instala pytest en CI (el workflow nunca lo instalaba, solo jsonschema)</h2>
+    <p>El primer run real de <code>.github/workflows/ci.yml</code> (disparado por el commit <code>1cff540</code>) falló en 9 segundos, justo en el paso de <code>pytest</code>: el workflow solo hacía <code>pip install jsonschema</code> y nunca instalaba <code>pytest</code> — funcionaba en cada verificación de esta sesión porque ya estaba instalado en el entorno local, pero un runner limpio de GitHub Actions no lo trae. El <code>README</code> tampoco documentó nunca <code>pytest</code> como requisito pese a usarlo en cada ejemplo. Nuevo <code>requirements-dev.txt</code> (<code>pytest</code> + <code>jsonschema</code>) referenciado desde CI y desde el README; verificado creando un virtualenv limpio local e instalando solo ese fichero.</p>
+    <div class="stat">3 ficheros · <b>+10 / -3</b> líneas</div>
+  </div>
+
   <div class="callout">
     Los commits <code>e1fddaf</code> a <code>fa12969</code> son los que motivaron el informe de hallazgos:
     surgieron al usar el generador contra un esquema de producción real en vez de los ejemplos de 3-10 campos
