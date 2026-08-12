@@ -143,6 +143,20 @@
     <div class="stat">11 ficheros · <b>+639 / -274</b> líneas</div>
   </div>
 
+  <div class="commit fix">
+    <div class="meta"><span class="hash">afd205b</span><span class="date">2026-08-12</span><span class="tag fix">fix</span></div>
+    <h2>fix: corrige docker-compose y Dockerfile del proyecto Kafka Streams generado</h2>
+    <p>Verificado end-to-end levantando <code>crud-sales-streams</code> con <code>docker compose</code> y enviando 20 mensajes reales a <code>orders-topic1</code>: el filtro y la agregación por cliente daban resultados correctos, pero el stack tal cual se generaba no llegaba a converger. En <code>docker-compose.yml</code>, un único listener <code>PLAINTEXT://localhost:9092</code> hacía que el contenedor <code>app</code>, tras el bootstrap contra <code>kafka:9092</code>, recibiera esa metadata y reintentara contra su propio <code>localhost</code> en vez del broker; se añade un segundo listener <code>PLAINTEXT_HOST</code> para el host. En el <code>Dockerfile</code>, la imagen de ejecución <code>eclipse-temurin:21-jre-alpine</code> (musl) no trae <code>libstdc++.so.6</code>, que la librería nativa de RocksDB (el store de Kafka Streams) necesita; el stream-thread moría con <code>UnsatisfiedLinkError</code> al arrancar, corregido cambiando a <code>eclipse-temurin:21-jre-jammy</code> (glibc).</p>
+    <div class="stat">1 fichero · <b>+14 / -5</b> líneas</div>
+  </div>
+
+  <div class="commit">
+    <div class="meta"><span class="hash">861694e</span><span class="date">2026-08-12</span><span class="tag docs">docs</span></div>
+    <h2>docs: reemplaza CLAUDE.md con la regla de informe HTML por commit</h2>
+    <p>Pedido explícito del usuario: sustituye la regla anterior de <code>CLAUDE.md</code> (límite de 254 parámetros de constructor) por una nueva — cada commit de este repositorio debe llevar una entrada de seguimiento en este mismo <code>historial-commits.html</code>, con hash, fecha, etiqueta y el motivo real del cambio, siguiendo el formato ya usado aquí.</p>
+    <div class="stat">1 fichero · <b>+29 / -25</b> líneas</div>
+  </div>
+
   <div class="callout">
     Los commits <code>e1fddaf</code> a <code>fa12969</code> son los que motivaron el informe de hallazgos:
     surgieron al usar el generador contra un esquema de producción real en vez de los ejemplos de 3-10 campos
