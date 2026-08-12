@@ -1,5 +1,6 @@
 """Plantillas de los archivos del proyecto Spring Boot generado."""
 
+from . import shared_templates
 from .parsing import DEFAULT_ENDPOINTS
 
 
@@ -583,36 +584,17 @@ def get_entity(
     include_all_args_builder=True,
     has_inverse_relations=False,
 ):
-    dynamic_insert_import = (
-        "\nimport org.hibernate.annotations.DynamicInsert;" if dynamic_insert else ""
+    return shared_templates.render_jpa_entity_class(
+        "com.example.crud.entity",
+        entity_name,
+        entity_lower,
+        entity_fields,
+        unique_constraints_annotation,
+        dynamic_insert,
+        include_all_args_builder,
+        "",
+        has_inverse_relations,
     )
-    dynamic_insert_annotation = "\n@DynamicInsert" if dynamic_insert else ""
-    constructor_annotations = (
-        "@AllArgsConstructor\n@Builder\n" if include_all_args_builder else ""
-    )
-    list_import = "\nimport java.util.List;" if has_inverse_relations else ""
-    return f"""package com.example.crud.entity;
-
-import jakarta.persistence.*;
-import lombok.*;
-import org.springframework.data.annotation.CreatedDate;
-import org.springframework.data.annotation.LastModifiedDate;
-import org.springframework.data.jpa.domain.support.AuditingEntityListener;{dynamic_insert_import}
-
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.math.BigDecimal;{list_import}
-
-@Entity
-@Table(name = "{entity_lower}s"{unique_constraints_annotation}){dynamic_insert_annotation}
-@Getter
-@Setter
-@NoArgsConstructor
-{constructor_annotations}@EntityListeners(AuditingEntityListener.class)
-public class {entity_name} {{
-{entity_fields}
-}}
-"""
 
 def get_enum_class(enum_class, values, package="com.example.crud.entity"):
     constants = ", ".join(values)
@@ -625,20 +607,9 @@ public enum {enum_class} {{
 
 
 def get_dto(class_name, dto_fields, enum_import_lines=""):
-    enum_imports = f"{enum_import_lines}\n" if enum_import_lines else ""
-    return f"""package com.example.crud.dto;
-
-import jakarta.validation.constraints.*;
-import lombok.Data;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.math.BigDecimal;
-{enum_imports}
-@Data
-public class {class_name} {{
-{dto_fields}
-}}
-"""
+    return shared_templates.render_dto_class(
+        "com.example.crud.dto", class_name, dto_fields, enum_import_lines
+    )
 
 def get_mapper(entity_name, reference_attrs=None):
     """reference_attrs: atributos 'reference' de la entidad. MapStruct no puede
@@ -652,13 +623,12 @@ def get_mapper(entity_name, reference_attrs=None):
     )
     ignore_block = f"{ignore_lines}\n" if ignore_lines else ""
 
-    def suffix(attr):
-        return attr["camel_name"][0].upper() + attr["camel_name"][1:]
+    suffix = shared_templates.capitalize_first
 
     response_lines = "\n".join(
         f'    @Mapping(target = "{attr["camel_name"]}Id", '
-        f'expression = "java(entity.get{suffix(attr)}() != null ? '
-        f'entity.get{suffix(attr)}().getId() : null)")'
+        f'expression = "java(entity.get{suffix(attr["camel_name"])}() != null ? '
+        f'entity.get{suffix(attr["camel_name"])}().getId() : null)")'
         for attr in reference_attrs
     )
     response_block = f"{response_lines}\n" if response_lines else ""
@@ -755,55 +725,32 @@ def get_service_impl(entity_name, reference_attrs=None):
     mapper los ignora (ver get_mapper), asi que aqui se resuelven a mano contra
     el repositorio de la entidad referenciada antes de guardar."""
     reference_attrs = reference_attrs or []
+    suffix = shared_templates.capitalize_first
 
-    def suffix(attr):
-        return attr["camel_name"][0].upper() + attr["camel_name"][1:]
-
-    reference_imports = "\n".join(
-        f"import com.example.crud.entity.{attr['references']};\n"
-        f"import com.example.crud.repository.{attr['references']}Repository;"
-        for attr in reference_attrs
+    reference_imports_block = shared_templates.render_reference_imports_block(
+        reference_attrs, "com.example.crud.entity", "com.example.crud.repository"
     )
-    reference_imports_block = f"{reference_imports}\n" if reference_imports else ""
+    reference_fields_block = shared_templates.render_reference_fields_block(reference_attrs)
 
-    reference_fields = "\n".join(
-        f"    private final {attr['references']}Repository {attr['camel_name']}Repository;"
-        for attr in reference_attrs
-    )
-    reference_fields_block = f"\n{reference_fields}" if reference_fields else ""
-
-    create_resolutions = "\n".join(
-        f"        entity.set{suffix(attr)}(resolve{suffix(attr)}(createDTO.get{suffix(attr)}Id()));"
-        for attr in reference_attrs
+    create_resolutions = shared_templates.render_reference_resolution_calls(
+        reference_attrs, "entity", "createDTO"
     )
     create_resolutions_block = f"\n{create_resolutions}" if create_resolutions else ""
 
-    update_resolutions = "\n".join(
-        f"        entity.set{suffix(attr)}(resolve{suffix(attr)}(updateDTO.get{suffix(attr)}Id()));"
-        for attr in reference_attrs
+    update_resolutions = shared_templates.render_reference_resolution_calls(
+        reference_attrs, "entity", "updateDTO"
     )
     update_resolutions_block = f"\n{update_resolutions}" if update_resolutions else ""
 
     patch_resolutions = "\n".join(
-        f"        if (patchDTO.get{suffix(attr)}Id() != null) {{\n"
-        f"            entity.set{suffix(attr)}(resolve{suffix(attr)}(patchDTO.get{suffix(attr)}Id()));\n"
+        f"        if (patchDTO.get{suffix(attr['camel_name'])}Id() != null) {{\n"
+        f"            entity.set{suffix(attr['camel_name'])}(resolve{suffix(attr['camel_name'])}(patchDTO.get{suffix(attr['camel_name'])}Id()));\n"
         "        }"
         for attr in reference_attrs
     )
     patch_resolutions_block = f"\n{patch_resolutions}" if patch_resolutions else ""
 
-    resolvers = "\n\n".join(
-        f"    private {attr['references']} resolve{suffix(attr)}(Integer {attr['camel_name']}Id) {{\n"
-        f"        if ({attr['camel_name']}Id == null) {{\n"
-        "            return null;\n"
-        "        }\n"
-        f"        return {attr['camel_name']}Repository.findById({attr['camel_name']}Id)\n"
-        f'                .orElseThrow(() -> new ResourceNotFoundException('
-        f'"{attr["references"]} no encontrado: " + {attr["camel_name"]}Id));\n'
-        "    }"
-        for attr in reference_attrs
-    )
-    resolvers_block = f"\n\n{resolvers}" if resolvers else ""
+    resolvers_block = shared_templates.render_reference_resolvers_block(reference_attrs)
 
     return f"""package com.example.crud.service.impl;
 
