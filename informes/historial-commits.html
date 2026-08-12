@@ -192,6 +192,13 @@
     <div class="stat">4 ficheros · <b>+72 / -3</b> líneas</div>
   </div>
 
+  <div class="commit fix">
+    <div class="meta"><span class="hash">1cff540</span><span class="date">2026-08-12</span><span class="tag fix">fix</span></div>
+    <h2>refactor: termina el pase DRY — unifica GlobalExceptionHandler y corrige un hueco real en ports</h2>
+    <p>Pedido explícito del usuario. <code>shared_templates.py</code> ya cubría entidad/DTO/resolución de <code>reference</code>; quedaban <code>get_controller_test</code>, <code>get_exception_handler</code> y <code>get_repository</code>/<code>get_service</code> como implementaciones paralelas. Al revisarlas aparecieron dos derivas reales: (1) el <code>GlobalExceptionHandler</code> de layered y el de ports llevaban tiempo respondiendo distinto para la misma clase de error en la misma API (layered incluía la clave <code>"error"</code> del reason-phrase, ports no; el mensaje de validación tampoco coincidía) — unificado en <code>shared_templates.render_global_exception_handler</code>; (2) <code>ports_templates.get_controller_test</code> nunca generó el equivalente de <code>findById_ExistingId_Returns200</code> que layered sí genera para el endpoint <code>get</code> — un hueco de cobertura real en cualquier proyecto hexagonal/clean con GET-por-id, no solo una diferencia de código. <code>get_repository</code>/<code>get_service</code> se revisaron y se dejaron como están: sus diferencias son de diseño deliberado y el código es demasiado pequeño para que el riesgo de duplicación sea real.</p>
+    <div class="stat">5 ficheros · <b>+115 / -157</b> líneas</div>
+  </div>
+
   <div class="callout">
     Los commits <code>e1fddaf</code> a <code>fa12969</code> son los que motivaron el informe de hallazgos:
     surgieron al usar el generador contra un esquema de producción real en vez de los ejemplos de 3-10 campos
