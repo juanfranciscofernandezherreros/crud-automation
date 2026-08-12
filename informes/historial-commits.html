@@ -185,6 +185,13 @@
     <div class="stat">2 ficheros · <b>+51</b> líneas</div>
   </div>
 
+  <div class="commit">
+    <div class="meta"><span class="hash">be4dc1d</span><span class="date">2026-08-12</span><span class="tag feat">feature</span></div>
+    <h2>feat: pre-push hook que exige informe en historial-commits.html por commit</h2>
+    <p>La regla de <code>CLAUDE.md</code> (cada commit lleva una entrada de seguimiento en este informe) solo estaba documentada en prosa — el mismo punto ciego que tuvo el límite de 254 parámetros de constructor antes de moverse a código. <code>.githooks/pre-push</code> recorre los commits del rango a enviar y falla si alguno (que no sea él mismo un <code>docs: informe de...</code>) no tiene su hash corto en este fichero; <code>.gitattributes</code> fuerza LF en <code>.githooks/*</code> para que el shebang no se rompa con <code>autocrlf=true</code>. Se activa una vez por clon con <code>git config core.hooksPath .githooks</code> — tenerlo en el repositorio no lo activa por sí solo. Probado en ambos sentidos antes de activarlo: bloquea cuando falta una entrada, deja pasar cuando el informe ya está al día.</p>
+    <div class="stat">4 ficheros · <b>+72 / -3</b> líneas</div>
+  </div>
+
   <div class="callout">
     Los commits <code>e1fddaf</code> a <code>fa12969</code> son los que motivaron el informe de hallazgos:
     surgieron al usar el generador contra un esquema de producción real en vez de los ejemplos de 3-10 campos
