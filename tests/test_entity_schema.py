@@ -30,8 +30,14 @@ class EntitySchemaTest(unittest.TestCase):
         jsonschema.Draft7Validator.check_schema(self.schema)
 
     def test_every_bundled_example_validates(self):
-        example_files = list(EXAMPLES_DIR.glob("*.json"))
-        self.assertTrue(example_files, "no hay ejemplos en examples/ para validar")
+        # examples/ tambien incluye definiciones no-CRUD (p.ej. sales-streams.json
+        # para --stream), que no siguen este schema de entidad y no deben validarse
+        # contra el.
+        example_files = [
+            path for path in EXAMPLES_DIR.glob("*.json")
+            if json.loads(path.read_text(encoding="utf-8")).keys() & {"entity", "entities"}
+        ]
+        self.assertTrue(example_files, "no hay ejemplos de entidad en examples/ para validar")
         for path in example_files:
             with self.subTest(example=path.name):
                 data = json.loads(path.read_text(encoding="utf-8"))
