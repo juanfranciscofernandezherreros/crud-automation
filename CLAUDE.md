@@ -1,28 +1,32 @@
 # Reglas del repositorio: crud-automation
 
-**Mejora aplicada:** `crud_generator/fields.py` expone
-`exceeds_constructor_param_limit(attrs)` (umbral 254, dejando margen para
-`id` + `version`). `generator.py` y `ports_generator.py` la consultan antes
-de renderizar la entidad; si se supera, `templates.py` y
-`ports_templates.py` (`get_entity`, `get_domain`, `get_persistence_entity`)
-omiten `@AllArgsConstructor` y `@Builder`, dejando `@NoArgsConstructor` +
-`@Getter`/`@Setter` — suficiente para JPA y para que MapStruct mapee
-DTO→entidad por setters cuando no hay builder disponible. Cubierto por
-`tests/test_templates.py`. Detalle completo en
-[`informes/hallazgos-generador.html`](informes/hallazgos-generador.html).
+## Informe HTML de cada commit
 
-**Regla para este repositorio:** cualquier cambio en `templates.py` o
-`ports_templates.py` que añada una anotación Lombok que genere un
-constructor con todos los campos (`@AllArgsConstructor`, `@Builder`,
-`@Value`, `@RequiredArgsConstructor` sobre campos no-final marcados
-manualmente, etc.) debe pasar por `exceeds_constructor_param_limit(attrs)`
-igual que las plantillas de entidad actuales, y verificarse generando y
-compilando (`mvn -DskipTests compile`) un proyecto con más de 254 campos
-antes de darse por válido — no basta con probarlo contra una entidad de
-ejemplo pequeña. Este generador se usa contra esquemas reales que pueden
-tener cientos de columnas; el conjunto de pruebas de aceptación
-(`tests/test_generated_projects.py`) debe conservar al menos un caso que
-ejercite `composite_unique`, `default`, `text` y `decimal` con
-`precision`/`scale` a la vez, ya que esas cuatro reglas nacieron de la misma
-necesidad (reproducir fielmente esquemas de columnas reales, no solo tipos
-de ejemplo).
+Cuando se cree un commit en este repositorio (siempre que el usuario lo pida
+explícitamente — la política global de no commitear/pushear sin permiso
+sigue aplicando), justo después añade una entrada nueva al final de
+`informes/historial-commits.html` describiendo ese commit, sin modificar las
+entradas anteriores. Reusa el formato ya usado en ese fichero:
+
+```html
+<div class="commit [fix]">
+  <div class="meta"><span class="hash">abc1234</span><span class="date">AAAA-MM-DD</span><span class="tag feat|fix|chore|docs">etiqueta</span></div>
+  <h2>Título corto (alineado con el mensaje del commit)</h2>
+  <p>Qué cambió y, sobre todo, por qué — el motivo real, no una repetición de la lista de ficheros tocados.</p>
+  <div class="stat">N ficheros · <b>+X / -Y</b> líneas</div>
+</div>
+```
+
+- `hash`: los 7 primeros caracteres del commit real (`git rev-parse --short HEAD` tras commitear).
+- `date`: `git show -s --format=%cd --date=short HEAD`.
+- `tag`: `feat` (funcionalidad nueva), `fix` (corrección de bug), `chore`
+  (tareas internas) o `docs` (documentación). Añade la clase `commit fix` al
+  `<div>` contenedor solo si es una corrección de bug real.
+- `stat`: sale de `git show --stat HEAD` (ficheros y líneas +/-).
+- La entrada va al final de `<main>`, antes del `<div class="callout">` si lo
+  hay.
+- El commit ya existe cuando se escribe el informe (se necesita su hash
+  real), así que el informe se añade en un commit de seguimiento aparte
+  (p. ej. `docs: informe del commit <hash>`) — nunca reescribiendo con
+  `--amend` el commit que describe.
+- Si el usuario no pide crear un commit, esta regla no se dispara.
