@@ -178,6 +178,13 @@
     <div class="stat">7 ficheros · <b>+497 / -128</b> líneas</div>
   </div>
 
+  <div class="commit">
+    <div class="meta"><span class="hash">7b0b388</span><span class="date">2026-08-12</span><span class="tag feat">feature</span></div>
+    <h2>feat: añade CI propio del generador (dogfooding de su plantilla de GitHub Actions)</h2>
+    <p>El generador produce un workflow de CI para cada proyecto que genera (<code>get_github_actions_workflow</code>), pero <code>crud-automation</code> en sí no tenía ninguno: la suite de pytest —incluida la aceptación real con <code>mvn verify</code> sobre proyectos CRUD y Kafka Streams generados— solo se ejecutaba cuando alguien la corría a mano en sesión, nunca automáticamente en cada push. <code>.github/workflows/ci.yml</code> lo cierra: Python 3.11 + JDK 21 (Docker ya disponible en el runner de GitHub Actions para Testcontainers), cache del repositorio Maven local por hash de <code>crud_generator/</code>, y <code>python -m pytest -q</code> completo en cada push/PR a <code>master</code>.</p>
+    <div class="stat">2 ficheros · <b>+51</b> líneas</div>
+  </div>
+
   <div class="callout">
     Los commits <code>e1fddaf</code> a <code>fa12969</code> son los que motivaron el informe de hallazgos:
     surgieron al usar el generador contra un esquema de producción real en vez de los ejemplos de 3-10 campos
