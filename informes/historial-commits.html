@@ -171,6 +171,13 @@
     <div class="stat">3 ficheros · <b>+193 / -158</b> líneas</div>
   </div>
 
+  <div class="commit fix">
+    <div class="meta"><span class="hash">80010f3</span><span class="date">2026-08-12</span><span class="tag feat">feature</span></div>
+    <h2>feat: --stream soporta modo passthrough (sin agregación) + corrige 2 bugs reales</h2>
+    <p>Pedido explícito del usuario: un stream que simplemente reenvía eventos de un topic a otro sin filtrar ni agregar nada. <code>processing</code> pasa a ser opcional en su totalidad (o sin <code>group_by_field</code>/<code>aggregate_field</code>/<code>aggregate_as</code>, que van juntos o ninguno): sin ella, la topología generada es un simple <code>mapValues</code> de un topic a otro, sin estado/KTable/join. Verificando el modo nuevo aparecieron dos bugs reales que ya existían en el modo con agregación, enmascarados porque el único ejemplo publicado (<code>examples/sales-streams.json</code>) siempre traía un filtro configurado: (1) sin filtro, un valor <code>null</code> en el topic de entrada llegaba sin comprobar a <code>selectKey</code>/<code>mapValues</code> y reventaba el stream-thread con <code>NullPointerException</code> — toda topología empieza ahora siempre con <code>.filter((k, v) -&gt; v != null)</code>; (2) el test de topología generado comprobaba siempre <code>.getTotalAmount()</code> sin mirar el <code>aggregate_as</code> real configurado, así que cualquier proyecto que no llamara al campo agregado "total_amount" no compilaba. Verificado con 167 tests (incluye una suite de aceptación nueva que compila con <code>mvn verify</code> los tres casos: agregación+filtro, agregación sin filtro, passthrough) y end-to-end en Docker: generado <code>examples/crypto-relay.json</code> y enviados 50 eventos de criptomonedas reales a <code>crypto-prices-in</code> — los 50 llegaron intactos y sin filtrar a <code>crypto-prices-out</code>.</p>
+    <div class="stat">7 ficheros · <b>+497 / -128</b> líneas</div>
+  </div>
+
   <div class="callout">
     Los commits <code>e1fddaf</code> a <code>fa12969</code> son los que motivaron el informe de hallazgos:
     surgieron al usar el generador contra un esquema de producción real en vez de los ejemplos de 3-10 campos
