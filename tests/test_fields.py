@@ -286,6 +286,77 @@ class ReferenceFieldGenerationTest(unittest.TestCase):
         self.assertIn("if (changes.getClienteId() != null)", patch)
         self.assertIn("current.setClienteId(changes.getClienteId());", patch)
 
+    def test_reference_field_is_filterable_by_its_id(self):
+        # ?clienteId=5 -> navega a la asociacion JPA sin join explicito.
+        cases = generate_specification_filter_cases(self._attrs())
+        self.assertIn('case "clienteId" -> spec = spec.and(', cases)
+        self.assertIn(
+            'cb.equal(root.get("cliente").get("id"), Integer.valueOf(value))', cases
+        )
+
+
+class InverseRelationTest(unittest.TestCase):
+    """El lado 'uno' de una 'reference' (p.ej. Cliente, al que apunta
+    Pedido.cliente) recibe un @OneToMany inverso en su entidad JPA."""
+
+    def _cliente_pedido_entities(self):
+        from crud_generator.fields import compute_inverse_relations
+
+        cliente_attrs = parse_attributes_from_fields(
+            [
+                {"name": "id", "type": "int"},
+                {"name": "nombre", "type": "string", "not_blank": True},
+            ]
+        )
+        pedido_attrs = parse_attributes_from_fields(
+            [
+                {"name": "id", "type": "int"},
+                {"name": "cliente", "type": "reference", "references": "Cliente"},
+            ]
+        )
+        entities = [("Cliente", cliente_attrs), ("Pedido", pedido_attrs)]
+        return entities, compute_inverse_relations(entities)
+
+    def test_the_referenced_entity_learns_who_references_it(self):
+        _, inverse = self._cliente_pedido_entities()
+        self.assertEqual([("Pedido", "cliente")], inverse["Cliente"])
+        self.assertEqual([], inverse["Pedido"])
+
+    def test_self_reference_is_not_reported_as_an_inverse_relation(self):
+        from crud_generator.fields import compute_inverse_relations
+
+        categoria_attrs = parse_attributes_from_fields(
+            [
+                {"name": "id", "type": "int"},
+                {"name": "padre", "type": "reference", "references": "Categoria"},
+            ]
+        )
+        inverse = compute_inverse_relations([("Categoria", categoria_attrs)])
+        self.assertEqual([], inverse["Categoria"])
+
+    def test_layered_entity_gets_a_one_to_many_collection_of_the_referencing_type(self):
+        entities, inverse = self._cliente_pedido_entities()
+        cliente_attrs = dict(entities)["Cliente"]
+        entity_fields = generate_entity_fields(
+            cliente_attrs, inverse_relations=inverse["Cliente"]
+        )
+        self.assertIn('@OneToMany(mappedBy = "cliente", fetch = FetchType.LAZY)', entity_fields)
+        self.assertIn("private List<Pedido> pedidos;", entity_fields)
+
+    def test_ports_entity_collection_uses_the_jpa_entity_type_with_suffix(self):
+        entities, inverse = self._cliente_pedido_entities()
+        cliente_attrs = dict(entities)["Cliente"]
+        entity_fields = generate_entity_fields(
+            cliente_attrs, reference_type_suffix="JpaEntity", inverse_relations=inverse["Cliente"]
+        )
+        self.assertIn("private List<PedidoJpaEntity> pedidos;", entity_fields)
+
+    def test_entity_without_inverse_relations_is_unaffected(self):
+        entities, inverse = self._cliente_pedido_entities()
+        pedido_attrs = dict(entities)["Pedido"]
+        entity_fields = generate_entity_fields(pedido_attrs, inverse_relations=inverse["Pedido"])
+        self.assertNotIn("@OneToMany", entity_fields)
+
 
 if __name__ == "__main__":
     unittest.main()

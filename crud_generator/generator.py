@@ -9,6 +9,7 @@ from .architectures import (
     normalize_architecture,
 )
 from .fields import (
+    compute_inverse_relations,
     exceeds_constructor_param_limit,
     generate_dto_fields,
     generate_entity_fields,
@@ -194,11 +195,18 @@ def _write_layered_scaffolding(write_file, base_dir, project_lower, base_package
     )
 
 
-def _write_layered_entity(write_file, base_dir, base_package, entity_name, attrs, endpoints):
+def _write_layered_entity(
+    write_file, base_dir, base_package, entity_name, attrs, endpoints, inverse_relations=None
+):
     """Todos los ficheros propios de UNA entidad: migracion, entidad JPA (+enums),
     repositorio, specification, DTOs, mapper, service, controller y sus tests
     (unitarios). Los campos 'reference' generan @ManyToOne y se resuelven en el
-    service contra el repositorio de la entidad referenciada."""
+    service contra el repositorio de la entidad referenciada.
+
+    inverse_relations: [(entidad_que_me_referencia, campo_en_esa_entidad), ...]
+    (ver fields.compute_inverse_relations) — el lado 'uno' de esas 'reference'
+    recibe ademas un @OneToMany de solo lectura."""
+    inverse_relations = inverse_relations or []
     entity_lower = entity_name.lower()
     package_path = base_package.replace(".", "/")
     java_base = f"{base_dir}/src/main/java/{package_path}"
@@ -216,10 +224,11 @@ def _write_layered_entity(write_file, base_dir, base_package, entity_name, attrs
         templates.get_entity(
             entity_name,
             entity_lower,
-            generate_entity_fields(attrs),
+            generate_entity_fields(attrs, inverse_relations=inverse_relations),
             generate_table_unique_constraints_annotation(attrs),
             has_default(attrs),
             not exceeds_constructor_param_limit(attrs),
+            bool(inverse_relations),
         ),
     )
     for enum_class, enum_values in get_enum_types(attrs).items():
@@ -365,6 +374,7 @@ def generate_multi_entity_layered_project(
 
     _write_layered_scaffolding(write_file, base_dir, project_lower, base_package, endpoints)
 
+    inverse_relations = compute_inverse_relations(entities)
     doc_links = []
     for entity_name, attrs in entities:
         entity_lower = entity_name.lower()
@@ -376,7 +386,10 @@ def generate_multi_entity_layered_project(
             ),
         )
         doc_links.append(f'<li><a href="{entity_lower}.html">{entity_name}</a></li>')
-        _write_layered_entity(write_file, base_dir, base_package, entity_name, attrs, endpoints)
+        _write_layered_entity(
+            write_file, base_dir, base_package, entity_name, attrs, endpoints,
+            inverse_relations.get(entity_name, []),
+        )
 
     write_file(
         f"{base_dir}/docs/index.html",

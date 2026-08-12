@@ -86,6 +86,7 @@ def get_persistence_entity(
     dynamic_insert=False,
     include_all_args_builder=True,
     enum_import_lines="",
+    has_inverse_relations=False,
 ):
     dynamic_insert_import = (
         "\nimport org.hibernate.annotations.DynamicInsert;" if dynamic_insert else ""
@@ -95,6 +96,7 @@ def get_persistence_entity(
         "@AllArgsConstructor\n@Builder\n" if include_all_args_builder else ""
     )
     enum_imports = f"{enum_import_lines}\n" if enum_import_lines else ""
+    list_import = "\nimport java.util.List;" if has_inverse_relations else ""
     return f"""package {package};
 
 import jakarta.persistence.*;
@@ -104,7 +106,7 @@ import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;{dynamic_insert_import}
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.math.BigDecimal;
+import java.math.BigDecimal;{list_import}
 {enum_imports}
 @Entity
 @Table(name = "{entity_lower}s"{unique_constraints_annotation}){dynamic_insert_annotation}

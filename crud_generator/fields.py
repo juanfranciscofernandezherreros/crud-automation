@@ -55,9 +55,18 @@ FILTER_VALUE_PARSERS = {
 
 
 def generate_specification_filter_cases(attrs):
-    """Un 'case' de switch por atributo filtrable, para {Entity}Specifications.fromFilters."""
+    """Un 'case' de switch por atributo filtrable, para {Entity}Specifications.fromFilters.
+    Una 'reference' se filtra por su id ('?clienteId=5'), navegando a la
+    asociacion JPA sin necesidad de un join explicito."""
     lines = []
     for attr in attrs:
+        if attr["type"] == "reference":
+            lines.append(
+                f'                case "{attr["camel_name"]}Id" -> spec = spec.and('
+                f'(root, query, cb) -> cb.equal('
+                f'root.get("{attr["camel_name"]}").get("id"), Integer.valueOf(value)));'
+            )
+            continue
         parser = FILTER_VALUE_PARSERS.get(attr["java_type"])
         if parser is None:
             continue
@@ -66,6 +75,24 @@ def generate_specification_filter_cases(attrs):
             f'(root, query, cb) -> cb.equal(root.get("{attr["camel_name"]}"), {parser}));'
         )
     return "\n".join(lines)
+
+
+def compute_inverse_relations(entities):
+    """entities: [(entity_name, attrs), ...] de un JSON multi-entidad. Devuelve
+    {entity_name: [(entidad_que_referencia, campo_camelCase_en_esa_entidad), ...]}
+    — para que el lado 'uno' de una 'reference' (p.ej. Cliente, referenciado por
+    Pedido.cliente) pueda generar su @OneToMany inverso. Una entidad sin nada
+    que la referencie sale con lista vacia; una autoreferencia (arbol) no
+    genera una relacion inversa hacia si misma con este mecanismo."""
+    inverse = {name: [] for name, _ in entities}
+    for entity_name, attrs in entities:
+        for attr in attrs:
+            if attr["type"] != "reference":
+                continue
+            referenced = attr["references"]
+            if referenced in inverse and referenced != entity_name:
+                inverse[referenced].append((entity_name, attr["camel_name"]))
+    return inverse
 
 
 # La JVM limita un constructor a 255 argumentos, incluida la referencia implicita
@@ -172,11 +199,19 @@ def generate_domain_update_statements(attrs, patch=False):
     return "\n".join(lines)
 
 
-def generate_entity_fields(attrs, reference_type_suffix=""):
+def generate_entity_fields(attrs, reference_type_suffix="", inverse_relations=None):
     """reference_type_suffix: layered no lo necesita ('Cliente' es a la vez
     el dominio y la entidad JPA), pero en hexagonal/clean la entidad JPA de
     una 'reference' debe apuntar a la clase de persistencia de la entidad
-    referenciada ('ClienteJpaEntity'), no a su modelo de dominio ('Cliente')."""
+    referenciada ('ClienteJpaEntity'), no a su modelo de dominio ('Cliente').
+
+    inverse_relations: [(entidad_que_me_referencia, campo_en_esa_entidad), ...]
+    (ver compute_inverse_relations) — el lado 'uno' de una 'reference' (p.ej.
+    Cliente, al que apunta Pedido.cliente) recibe ademas un
+    @OneToMany(mappedBy=...) de solo lectura hacia esa coleccion. No se
+    expone en DTOs ni dominio: consultar 'los Pedidos de un Cliente' se hace
+    con el filtro generico ya existente (GET /api/pedidos?clienteId=5), no
+    incrustando la coleccion (evita N+1 y respuestas de tamano no acotado)."""
     lines = []
     for attr in attrs:
         if attr["is_id"]:
@@ -218,6 +253,13 @@ def generate_entity_fields(attrs, reference_type_suffix=""):
                 f"    private {attr['java_type']} {attr['camel_name']}{initializer};"
             )
     lines.append("    @Version\n    private Long version;")
+    for referencing_entity, owner_field in (inverse_relations or []):
+        referencing_type = f"{referencing_entity}{reference_type_suffix}"
+        collection_field = f"{referencing_entity[0].lower()}{referencing_entity[1:]}s"
+        lines.append(
+            f'    @OneToMany(mappedBy = "{owner_field}", fetch = FetchType.LAZY)\n'
+            f"    private List<{referencing_type}> {collection_field};"
+        )
     return "\n\n".join(lines)
 
 

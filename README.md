@@ -152,6 +152,23 @@ a A) no estan soportadas y el generador lo rechaza explicitamente. El
 directorio del proyecto usa `project` si se indica, o el nombre de la
 primera entidad listada.
 
+El lado "uno" de la relación (`Cliente`, al que apunta `Pedido.cliente`)
+recibe automáticamente:
+
+- `@OneToMany(mappedBy = "cliente", fetch = FetchType.LAZY) private List<Pedido> pedidos;`
+  en su entidad JPA (`ClienteJpaEntity` en hexagonal/clean, apuntando a
+  `PedidoJpaEntity`), para que el grafo de persistencia sea correcto y
+  navegable. No se expone en el dominio ni en los DTOs de `Cliente` — el
+  dominio no puede poblarlo sin acceso a un repositorio, e incrustar la
+  colección en la respuesta arriesga *N+1* y payloads sin límite.
+- Un filtro nuevo en `GET /api/pedidos?clienteId=<id>` (mismo mecanismo
+  genérico ya existente para cualquier campo), que compara contra el `id`
+  de la asociación JPA sin necesidad de un `join` explícito. Esta es la vía
+  soportada para consultar "los pedidos de un cliente".
+
+Solo se genera `@ManyToOne`/`@OneToMany` (uno-a-muchos); no hay
+`@ManyToMany`.
+
 ### Campos `enum`
 
 ```json

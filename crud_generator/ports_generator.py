@@ -6,6 +6,7 @@ from . import documentation, migrations, ports_templates, templates
 from .architectures import DEFAULT_BASE_PACKAGE
 from .observability import write_observability_stack
 from .fields import (
+    compute_inverse_relations,
     exceeds_constructor_param_limit,
     generate_domain_update_statements,
     generate_dto_fields,
@@ -111,14 +112,21 @@ def _write_ports_scaffolding(write_file, base_dir, project_lower, base_package, 
 
 
 def _write_ports_entity(
-    write_file, main_java, test_java, resources, base_package, entity_name, attrs, layout, endpoints
+    write_file, main_java, test_java, resources, base_package, entity_name, attrs, layout, endpoints,
+    inverse_relations=None,
 ):
     """Todos los ficheros propios de UNA entidad: migracion, dominio, entidad
     JPA (+enums), puertos, service, DTOs, mappers, adaptador de persistencia,
     controller y sus tests. Los campos 'reference' generan @ManyToOne en la
     entidad JPA (el dominio solo guarda el '{campo}Id', ver
     fields.generate_plain_fields) y se resuelven en el adaptador de
-    persistencia contra el repositorio JPA de la entidad referenciada."""
+    persistencia contra el repositorio JPA de la entidad referenciada.
+
+    inverse_relations: [(entidad_que_me_referencia, campo_en_esa_entidad), ...]
+    (ver fields.compute_inverse_relations) — el lado 'uno' de esas 'reference'
+    recibe un @OneToMany de solo lectura en su entidad JPA (no en el dominio:
+    este no tiene acceso a un repositorio para poblarlo)."""
+    inverse_relations = inverse_relations or []
     entity_lower = entity_name.lower()
     table_name = f"{entity_lower}s"
 
@@ -210,11 +218,14 @@ def _write_ports_entity(
                 entity_name,
                 entity_lower,
                 layout.persistence_package,
-                generate_entity_fields(attrs, reference_type_suffix="JpaEntity"),
+                generate_entity_fields(
+                    attrs, reference_type_suffix="JpaEntity", inverse_relations=inverse_relations
+                ),
                 generate_table_unique_constraints_annotation(attrs),
                 has_default(attrs),
                 include_all_args_builder,
                 enum_import_lines,
+                bool(inverse_relations),
             ),
         (layout.persistence_package, f"{entity_name}PersistenceMapper.java"):
             ports_templates.get_persistence_mapper(entity_name, layout, reference_attrs),
@@ -313,6 +324,7 @@ def generate_multi_entity_ports_project(
 
     _write_ports_scaffolding(write_file, base_dir, project_lower, base_package, main_java, resources)
 
+    inverse_relations = compute_inverse_relations(entities)
     doc_links = []
     for entity_name, attrs in entities:
         entity_lower = entity_name.lower()
@@ -327,6 +339,7 @@ def generate_multi_entity_ports_project(
         _write_ports_entity(
             write_file, main_java, test_java, resources, base_package,
             entity_name, attrs, layout, endpoints,
+            inverse_relations.get(entity_name, []),
         )
 
     write_file(

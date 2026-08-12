@@ -581,6 +581,7 @@ def get_entity(
     unique_constraints_annotation="",
     dynamic_insert=False,
     include_all_args_builder=True,
+    has_inverse_relations=False,
 ):
     dynamic_insert_import = (
         "\nimport org.hibernate.annotations.DynamicInsert;" if dynamic_insert else ""
@@ -589,6 +590,7 @@ def get_entity(
     constructor_annotations = (
         "@AllArgsConstructor\n@Builder\n" if include_all_args_builder else ""
     )
+    list_import = "\nimport java.util.List;" if has_inverse_relations else ""
     return f"""package com.example.crud.entity;
 
 import jakarta.persistence.*;
@@ -599,7 +601,7 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;{dynam
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.math.BigDecimal;
+import java.math.BigDecimal;{list_import}
 
 @Entity
 @Table(name = "{entity_lower}s"{unique_constraints_annotation}){dynamic_insert_annotation}

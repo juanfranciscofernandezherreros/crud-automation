@@ -42,6 +42,11 @@
     <h2>Enum y relaciones ahora en hexagonal y clean</h2>
     <p>Tras puntuar el generador y señalar que <code>enum</code>/<code>reference</code> solo funcionaban con <code>architecture: "layered"</code>, se extendieron a <code>hexagonal</code> y <code>clean</code>: el dominio guarda el id de la relación, no el objeto, y el adaptador de persistencia lo resuelve. Dos bugs reales de compilación encontrados y corregidos por el camino.</p>
   </a>
+  <a class="card" href="onetomany.html">
+    <span class="eyebrow">04 · @OneToMany desde el lado "uno"</span>
+    <h2>@OneToMany desde el lado "uno" de la relación</h2>
+    <p>El generador solo modelaba <code>@ManyToOne</code>: no había forma de consultar "los Pedidos de un Cliente" desde el lado Cliente. Ahora la entidad JPA referenciada recibe la colección inversa, y el filtrado genérico ya existente aprende a filtrar por el id de una relación (<code>?clienteId=5</code>), sin incrustar la colección en la respuesta.</p>
+  </a>
 </main>
 <footer>Generado durante la sesión de trabajo sobre <code>crud_generator/</code>.</footer>
 </body>

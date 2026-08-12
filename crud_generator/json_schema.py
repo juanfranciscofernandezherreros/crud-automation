@@ -40,7 +40,9 @@ entidad JPA y un "{name}Id" (Integer) en los DTOs (y, en hexagonal/clean, tambie
 en el modelo de dominio: el dominio no tiene acceso a un repositorio). Quien
 resuelve el ID contra el repositorio de la entidad referenciada es el service
 (layered) o el adaptador de persistencia (hexagonal/clean), justo antes de
-guardar. "references" debe nombrar otra entidad del mismo "entities" (o la propia
+guardar. El lado referenciado recibe ademas un @OneToMany de solo lectura
+(no expuesto en DTOs/dominio) y un filtro "?{name}Id=" en el listado de quien
+referencia. "references" debe nombrar otra entidad del mismo "entities" (o la propia
 entidad, para relaciones reflexivas como un arbol de categorias).
 """
 

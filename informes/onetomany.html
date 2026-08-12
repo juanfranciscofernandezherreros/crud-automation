@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>@OneToMany desde el lado "uno" | crud-automation</title>
+<style>
+  :root{--ink:#17211c;--muted:#58645e;--paper:#f7f8f5;--surface:#fff;--line:#d9dfda;
+        --green:#176b4b;--green-dark:#0f4934;--amber:#b66b13;--danger:#a33a32;--code-bg:#111915;}
+  *{box-sizing:border-box}
+  body{margin:0;color:var(--ink);background:var(--paper);font-family:Inter,ui-sans-serif,system-ui,"Segoe UI",sans-serif;line-height:1.6}
+  header{padding:36px max(24px,calc((100vw - 900px)/2));color:#fff;background:var(--ink);border-bottom:3px solid var(--amber)}
+  header a{color:#e7eee9;text-decoration:none;font-size:14px}
+  h1{margin:10px 0 6px;font-size:32px}
+  header p{margin:0;color:#cfd9d2;max-width:720px}
+  main{width:min(900px,calc(100% - 48px));margin:0 auto;padding:40px 0 80px}
+  section{margin-bottom:44px;padding-bottom:36px;border-bottom:1px solid var(--line)}
+  section:last-child{border-bottom:0}
+  .eyebrow{display:inline-block;margin-bottom:8px;color:var(--green-dark);font:700 12px/1.2 "Cascadia Code",Consolas,monospace;text-transform:uppercase}
+  h2{margin:0 0 10px;font-size:24px}
+  h3{margin:22px 0 8px;font-size:16px;color:var(--green-dark)}
+  p{margin:0 0 12px;color:#2c352f}
+  .lead{color:var(--muted);font-size:16px;max-width:760px}
+  table{width:100%;border-collapse:collapse;margin:14px 0;background:var(--surface);border:1px solid var(--line);font-size:14px}
+  th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:var(--green-dark);color:#fff;font-size:12px;text-transform:uppercase}
+  tr:last-child td{border-bottom:0}
+  code{font-family:"Cascadia Code",Consolas,monospace;background:#eef2ef;color:var(--green-dark);padding:1px 5px;border-radius:3px;font-size:.92em}
+  pre{overflow-x:auto;margin:12px 0;padding:16px 18px;color:#e8eee9;background:var(--code-bg);border:1px solid #2e3933;border-radius:6px;font:13px/1.6 "Cascadia Code",Consolas,monospace;white-space:pre}
+  .callout{margin:16px 0;padding:14px 16px;background:#edf6f1;border-left:4px solid var(--green);border-radius:0 6px 6px 0;font-size:14px}
+  .callout.warn{background:#fff7e9;border-color:var(--amber)}
+  .callout.danger{background:#fbe9e7;border-color:var(--danger)}
+  .badge{display:inline-block;padding:2px 9px;border-radius:20px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;background:#e3f2ea;color:var(--green-dark);margin-left:8px;vertical-align:middle}
+  .badge.fix{background:#fbe9e7;color:var(--danger)}
+  footer{padding:24px;color:#cad5ce;background:var(--ink);text-align:center;font-size:12.5px}
+</style>
+</head>
+<body>
+<header>
+  <a href="index.html">&larr; Informes crud-automation</a>
+  <h1>@OneToMany desde el lado "uno" de la relación</h1>
+  <p class="lead">Tras cerrar la brecha de <code>enum</code>/<code>reference</code> en hexagonal y clean, quedaba señalado que el generador solo modelaba <code>@ManyToOne</code>: "un Cliente tiene muchos Pedidos" no se podía consultar desde el lado <code>Cliente</code>. Esta sesión lo cierra.</p>
+</header>
+<main>
+
+  <section>
+    <span class="eyebrow">Diseño</span>
+    <h2>Qué se genera, y qué se decidió no generar</h2>
+    <p>El lado "uno" de una <code>reference</code> (p.ej. <code>Cliente</code>, al que apunta <code>Pedido.cliente</code>) recibe dos cosas:</p>
+    <table>
+      <thead><tr><th>Qué</th><th>Dónde</th></tr></thead>
+      <tbody>
+        <tr><td><code>@OneToMany(mappedBy = "cliente", fetch = FetchType.LAZY) private List&lt;Pedido&gt; pedidos;</code></td><td>Entidad JPA (<code>Cliente.java</code> en layered, <code>ClienteJpaEntity.java</code> en hexagonal/clean, apuntando a <code>PedidoJpaEntity</code>) — grafo de persistencia correcto y navegable.</td></tr>
+        <tr><td>Filtro <code>GET /api/pedidos?clienteId=5</code></td><td><code>PedidoSpecifications</code>/<code>PedidoJpaSpecifications</code>: <code>cb.equal(root.get("cliente").get("id"), Integer.valueOf(value))</code>, navegando a la asociación sin <code>join</code> explícito.</td></tr>
+      </tbody>
+    </table>
+    <p>Deliberadamente <strong>no</strong> se incrusta la colección en el dominio, los DTOs ni la respuesta de <code>Cliente</code>. Dos razones: en hexagonal/clean el dominio no tiene acceso a un repositorio para poblarla (igual que ya pasaba con el lado <code>@ManyToOne</code>, resuelto en la sesión anterior), y en cualquier arquitectura incrustar una colección sin paginar en la respuesta de un recurso es un antipatrón conocido (tamaño de payload no acotado, riesgo de <em>N+1</em> si Hibernate la carga entera). La vía soportada para "los pedidos de un cliente" es el filtro genérico ya existente en el generador — el mismo mecanismo que cualquier otro campo, solo que ahora también funciona para una <code>reference</code>, que antes se ignoraba silenciosamente en <code>generate_specification_filter_cases</code>.</p>
+    <p>Tampoco se genera <code>@ManyToMany</code>: no se pidió explícitamente y añade una entidad de unión (tabla intermedia) que es un salto de complejidad mayor que este cambio.</p>
+  </section>
+
+  <section>
+    <span class="eyebrow">Implementación</span>
+    <h2>De dónde sale la lista de "quién me referencia"</h2>
+    <p>Nueva función <code>fields.compute_inverse_relations(entities)</code>: recorre el <code>entities</code> del JSON multi-entidad una vez y devuelve, para cada entidad, la lista de <code>(entidad_que_la_referencia, campo)</code>. Una autoreferencia (p.ej. <code>Categoria.padre → Categoria</code>) no genera una relación inversa hacia sí misma. <code>generate_entity_fields()</code> gana un parámetro <code>inverse_relations</code> que añade el bloque <code>@OneToMany</code> al final de la entidad; <code>reference_type_suffix</code> (ya existente desde la sesión anterior) hace que en hexagonal/clean la colección apunte a <code>PedidoJpaEntity</code> y no a <code>Pedido</code> (el dominio).</p>
+    <p>Como <code>Cliente</code> y <code>Pedido</code> siempre viven en el mismo paquete (el de entidad en layered, el de persistencia en hexagonal/clean), la clase referenciada en el <code>@OneToMany</code> no necesita import — solo hace falta añadir <code>import java.util.List;</code>, condicional a que la entidad tenga alguna relación inversa.</p>
+  </section>
+
+  <section>
+    <span class="eyebrow">Resultado</span>
+    <h2>Estado final verificado</h2>
+    <p><code>python -m pytest -q</code> &#8594; 139 tests en verde, más la suite de aceptación completa (<code>mvn verify</code> real sobre layered/hexagonal/clean sin las features nuevas, para confirmar que no se rompió el caso base).</p>
+    <table>
+      <thead><tr><th>Arquitectura</th><th>Verificación</th></tr></thead>
+      <tbody>
+        <tr><td>layered</td><td>Generado (Cliente + Pedido) + <code>mvn test-compile</code> + 18 tests unitarios/controller en verde. <code>Cliente.java</code> con <code>List&lt;Pedido&gt; pedidos</code>, <code>PedidoSpecifications</code> con el <code>case "clienteId"</code> nuevo.</td></tr>
+        <tr><td>hexagonal</td><td>Generado + <code>mvn test-compile</code> + 16 tests en verde. <code>ClienteJpaEntity.java</code> con <code>List&lt;PedidoJpaEntity&gt; pedidos</code>.</td></tr>
+        <tr><td>clean</td><td>Generado + <code>mvn test-compile</code> + 16 tests en verde. Mismo resultado que hexagonal, paquetes distintos.</td></tr>
+      </tbody>
+    </table>
+    <div class="callout warn">
+      <strong>No verificado con Docker real:</strong> Docker Desktop no estuvo disponible en esta máquina durante toda la sesión, así que no se pudo levantar el stack y comprobar <code>GET /api/pedidos?clienteId=5</code> contra Postgres real con datos insertados — como sí se hizo para las relaciones <code>@ManyToOne</code> en layered en una sesión anterior. La confianza aquí viene de compilación real + tests unitarios/MVC reales; el patrón <code>root.get(assoc).get("id")</code> de Criteria API es estándar y ya se valida a nivel de tipos en la compilación, pero una verificación end-to-end queda pendiente si se quiere el mismo nivel de confianza que las demás features de esta sesión.
+    </div>
+  </section>
+
+</main>
+<footer>Informe de la sesión de trabajo sobre <code>crud_generator/</code>, repositorio crud-automation.</footer>
+</body>
+</html>
