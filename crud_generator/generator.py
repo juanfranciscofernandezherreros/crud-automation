@@ -179,7 +179,7 @@ def _write_layered_scaffolding(write_file, base_dir, project_lower, base_package
         templates.IDEMPOTENCY_SERVICE,
     )
     write_file(
-        f"{java_base}/exception/GlobalExceptionHandler.java", templates.EXCEPTION_HANDLER
+        f"{java_base}/exception/GlobalExceptionHandler.java", templates.get_exception_handler()
     )
     write_file(
         f"{java_base}/exception/ResourceNotFoundException.java", templates.EXCEPTION_CLASS

@@ -256,6 +256,19 @@ class PortsEnumAndReferenceTest(unittest.TestCase):
         self.assertIn("createDTO.setNombre(", test_file)
         self.assertNotIn("dto.setNombre(", test_file)
 
+    def test_ports_controller_test_covers_the_get_endpoint(self):
+        # ports_templates.get_controller_test nunca tuvo el equivalente del
+        # findById_ExistingId_Returns200 que templates.get_controller_test
+        # (layered) sí genera para el endpoint 'get' -- un hueco de
+        # cobertura real en cualquier proyecto hexagonal/clean generado,
+        # no solo una diferencia cosmetica de codigo.
+        test_file = ports_templates.get_controller_test(
+            "Producto", "producto", self.layout, "", False, "", ["get"],
+        )
+        self.assertIn("findById_ExistingId_Returns200", test_file)
+        self.assertIn("when(useCase.findById(1)).thenReturn(domain)", test_file)
+        self.assertIn('get("/api/productos/1"', test_file)
+
     def test_persistence_entity_and_dto_accept_enum_import_lines(self):
         entity_file = ports_templates.get_persistence_entity(
             "Pedido", "pedido", self.layout.persistence_package, "    private Estado estado;",

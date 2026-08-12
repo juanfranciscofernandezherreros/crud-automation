@@ -511,71 +511,7 @@ public class ResourceNotFoundException extends RuntimeException {{
 
 
 def get_exception_handler(layout):
-    return f"""package {layout.exception_package};
-
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
-import org.springframework.validation.FieldError;
-import org.springframework.web.bind.MethodArgumentNotValidException;
-import org.springframework.web.bind.annotation.ExceptionHandler;
-import org.springframework.web.bind.annotation.RestControllerAdvice;
-import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.orm.ObjectOptimisticLockingFailureException;
-import org.springframework.data.mapping.PropertyReferenceException;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeParseException;
-import java.util.HashMap;
-import java.util.Map;
-
-@RestControllerAdvice
-public class GlobalExceptionHandler {{
-    @ExceptionHandler(PropertyReferenceException.class)
-    public ResponseEntity<Map<String, Object>> handleInvalidSortProperty(PropertyReferenceException ex) {{
-        return error(HttpStatus.BAD_REQUEST,
-                "Propiedad de ordenación no válida: " + ex.getPropertyName(), Map.of());
-    }}
-
-    @ExceptionHandler({{NumberFormatException.class, DateTimeParseException.class}})
-    public ResponseEntity<Map<String, Object>> handleInvalidFilterValue(RuntimeException ex) {{
-        return error(HttpStatus.BAD_REQUEST, "Valor de filtro no válido: " + ex.getMessage(), Map.of());
-    }}
-
-    @ExceptionHandler(ResourceNotFoundException.class)
-    public ResponseEntity<Map<String, Object>> handleNotFound(ResourceNotFoundException ex) {{
-        return error(HttpStatus.NOT_FOUND, ex.getMessage(), Map.of());
-    }}
-
-    @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<Map<String, Object>> handleValidation(MethodArgumentNotValidException ex) {{
-        Map<String, String> fields = new HashMap<>();
-        ex.getBindingResult().getAllErrors().forEach(error -> fields.put(
-                ((FieldError) error).getField(), error.getDefaultMessage()));
-        return error(HttpStatus.BAD_REQUEST, "Error de validación", fields);
-    }}
-
-    @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<Map<String, Object>> handleBadRequest(IllegalArgumentException ex) {{
-        return error(HttpStatus.BAD_REQUEST, ex.getMessage(), Map.of());
-    }}
-
-    @ExceptionHandler({{ObjectOptimisticLockingFailureException.class,
-            DataIntegrityViolationException.class}})
-    public ResponseEntity<Map<String, Object>> handleConflict(RuntimeException ex) {{
-        return error(HttpStatus.CONFLICT,
-                "Conflicto de concurrencia o integridad", Map.of());
-    }}
-
-    private ResponseEntity<Map<String, Object>> error(
-            HttpStatus status, String message, Map<String, String> fields) {{
-        Map<String, Object> body = new HashMap<>();
-        body.put("timestamp", LocalDateTime.now());
-        body.put("status", status.value());
-        body.put("message", message);
-        body.put("validationErrors", fields);
-        return new ResponseEntity<>(body, status);
-    }}
-}}
-"""
+    return shared_templates.render_global_exception_handler(layout.exception_package)
 
 
 def get_service_test(entity_name, layout):
@@ -711,6 +647,24 @@ def get_controller_test(
         mockMvc.perform(patch("/api/{entity_lower}s/1").with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{{}}"))
+                .andExpect(status().isOk());
+    }}""")
+    if "get" in endpoints:
+        # Faltaba en hexagonal/clean: layered ya generaba este test
+        # (findById_ExistingId_Returns200) para el endpoint 'get', pero esta
+        # funcion nunca llego a tener su equivalente -- justo el tipo de
+        # deriva entre arquitecturas que shared_templates.py existe para
+        # evitar. Sigue el mismo patron de mocking que el test de 'patch' de
+        # arriba (useCase + mapper, en vez del 'service' unico de layered).
+        tests.append(f"""
+    @Test
+    void findById_ExistingId_Returns200() throws Exception {{
+        {entity_name} domain = new {entity_name}();
+        when(useCase.findById(1)).thenReturn(domain);
+        when(mapper.toDto(domain)).thenReturn(new {entity_name}ResponseDTO());
+
+        mockMvc.perform(get("/api/{entity_lower}s/1")
+                .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk());
     }}""")
 

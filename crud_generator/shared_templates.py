@@ -139,3 +139,83 @@ def render_reference_resolution_calls(reference_attrs, target_var, source_var, i
         f"resolve{capitalize_first(attr['camel_name'])}({source_var}.get{capitalize_first(attr['camel_name'])}Id()));"
         for attr in reference_attrs
     )
+
+
+def render_global_exception_handler(package):
+    """`@RestControllerAdvice` compartido: antes de este helper, layered
+    repetía el bloque `Map<String,Object> error = ...; error.put(...)` en
+    cada uno de los 6 handlers (sin la clave "error" del reason-phrase en
+    ningún sitio salvo aqui), y hexagonal/clean ya lo habia factorizado en un
+    metodo privado `error(status, message, fields)` pero SIN esa misma clave
+    y con un texto de validacion distinto — las dos arquitecturas llevaban
+    tiempo respondiendo con una forma de error ligeramente distinta para la
+    misma API, justo el tipo de deriva que este modulo existe para evitar.
+    Se unifica en la version factorizada (mas corta) incluyendo la clave
+    "error" y el texto de validacion mas descriptivo de layered."""
+    return f"""package {package};
+
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.validation.FieldError;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import org.springframework.data.mapping.PropertyReferenceException;
+
+import java.time.LocalDateTime;
+import java.time.format.DateTimeParseException;
+import java.util.HashMap;
+import java.util.Map;
+
+@RestControllerAdvice
+public class GlobalExceptionHandler {{
+
+    @ExceptionHandler(PropertyReferenceException.class)
+    public ResponseEntity<Map<String, Object>> handleInvalidSortProperty(PropertyReferenceException ex) {{
+        return error(HttpStatus.BAD_REQUEST,
+                "Propiedad de ordenación no válida: " + ex.getPropertyName(), Map.of());
+    }}
+
+    @ExceptionHandler({{NumberFormatException.class, DateTimeParseException.class}})
+    public ResponseEntity<Map<String, Object>> handleInvalidFilterValue(RuntimeException ex) {{
+        return error(HttpStatus.BAD_REQUEST, "Valor de filtro no válido: " + ex.getMessage(), Map.of());
+    }}
+
+    @ExceptionHandler(ResourceNotFoundException.class)
+    public ResponseEntity<Map<String, Object>> handleNotFound(ResourceNotFoundException ex) {{
+        return error(HttpStatus.NOT_FOUND, ex.getMessage(), Map.of());
+    }}
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<Map<String, Object>> handleBadRequest(IllegalArgumentException ex) {{
+        return error(HttpStatus.BAD_REQUEST, ex.getMessage(), Map.of());
+    }}
+
+    @ExceptionHandler({{ObjectOptimisticLockingFailureException.class,
+            DataIntegrityViolationException.class}})
+    public ResponseEntity<Map<String, Object>> handleConflict(RuntimeException ex) {{
+        return error(HttpStatus.CONFLICT, "Conflicto de concurrencia o integridad", Map.of());
+    }}
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<Map<String, Object>> handleValidationExceptions(MethodArgumentNotValidException ex) {{
+        Map<String, String> fieldErrors = new HashMap<>();
+        ex.getBindingResult().getAllErrors().forEach(fieldError -> fieldErrors.put(
+                ((FieldError) fieldError).getField(), fieldError.getDefaultMessage()));
+        return error(HttpStatus.BAD_REQUEST, "Error de validación en los campos", fieldErrors);
+    }}
+
+    private ResponseEntity<Map<String, Object>> error(
+            HttpStatus status, String message, Map<String, String> fieldErrors) {{
+        Map<String, Object> body = new HashMap<>();
+        body.put("timestamp", LocalDateTime.now());
+        body.put("status", status.value());
+        body.put("error", status.getReasonPhrase());
+        body.put("message", message);
+        body.put("validationErrors", fieldErrors);
+        return new ResponseEntity<>(body, status);
+    }}
+}}
+"""
