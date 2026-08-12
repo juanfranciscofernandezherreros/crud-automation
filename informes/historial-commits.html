@@ -206,6 +206,13 @@
     <div class="stat">3 ficheros · <b>+10 / -3</b> líneas</div>
   </div>
 
+  <div class="commit">
+    <div class="meta"><span class="hash">4ae4eb8</span><span class="date">2026-08-12</span><span class="tag docs">docs</span></div>
+    <h2>docs: un ejemplo por funcionalidad en examples/</h2>
+    <p>Pedido explícito del usuario: <code>examples/</code> tenía huecos reales pese a cubrir ya multi-entidad, <code>reference</code>+<code>enum</code> y ambos modos de <code>--stream</code>. Cuatro ficheros nuevos, cada uno generado y verificado con <code>mvn verify</code> real antes de guardarlo: <code>tipos-y-validaciones.json</code> (los 9 tipos de campo + <code>composite_unique</code> + <code>default</code> + <code>decimal</code> precision/scale a la vez, el combo de <code>hallazgos-generador.html</code> sin ejemplo hasta ahora), <code>categorias-arbol.json</code> (reference reflexiva, documentada pero sin ejemplo), <code>empleados-clean.json</code> (arquitectura <code>clean</code>, ausente hasta ahora), <code>sensores-stream.json</code> (agregación de <code>--stream</code> sin filtro, el caso que expuso el bug de tombstone de <code>80010f3</code>). README actualizado con tabla y referencias cruzadas.</p>
+    <div class="stat">5 ficheros · <b>+103 / -7</b> líneas</div>
+  </div>
+
   <div class="callout">
     Los commits <code>e1fddaf</code> a <code>fa12969</code> son los que motivaron el informe de hallazgos:
     surgieron al usar el generador contra un esquema de producción real en vez de los ejemplos de 3-10 campos
