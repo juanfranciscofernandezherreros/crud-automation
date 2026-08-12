@@ -600,23 +600,55 @@ class LoadEntitiesSchemaTest(unittest.TestCase):
                     sorted(path.name for path in migrations_dir.iterdir()),
                 )
 
-    def test_rejects_multi_entity_with_non_layered_architecture(self):
+    def test_generate_project_from_json_dispatches_multi_entity_ports_project(self):
         with tempfile.TemporaryDirectory() as directory:
             path = self._write_json(
                 directory,
                 {
+                    "project": "ventas",
                     "architecture": "hexagonal",
+                    "package": "com.miempresa.ventas",
                     "entities": [
                         {
                             "entity": "Cliente",
-                            "fields": [{"name": "id", "type": "int"}],
-                        }
+                            "fields": [
+                                {
+                                    "name": "nombre",
+                                    "type": "string",
+                                    "not_blank": True,
+                                    "required": True,
+                                },
+                                {"name": "id", "type": "int"},
+                            ],
+                        },
+                        {
+                            "entity": "Pedido",
+                            "fields": [
+                                {"name": "id", "type": "int"},
+                                {
+                                    "name": "cliente",
+                                    "type": "reference",
+                                    "references": "Cliente",
+                                    "required": True,
+                                },
+                            ],
+                        },
                     ],
                 },
             )
+
             with working_directory(directory):
-                with self.assertRaisesRegex(DefinitionError, "layered"):
-                    generate_project_from_json(path)
+                base_dir = Path(generate_project_from_json(path))
+                self.assertEqual("crud-ventas-hexagonal", base_dir.name)
+                persistence = base_dir / "src/main/java/com/miempresa/ventas/adapter/out/persistence"
+                self.assertTrue((persistence / "ClienteJpaEntity.java").is_file())
+                self.assertTrue((persistence / "PedidoJpaEntity.java").is_file())
+                self.assertTrue((persistence / "PedidoPersistenceAdapter.java").is_file())
+                migrations_dir = base_dir / "src/main/resources/db/migration"
+                self.assertEqual(
+                    ["V1__Create_Table_Cliente.sql", "V2__Create_Table_Pedido.sql"],
+                    sorted(path.name for path in migrations_dir.iterdir()),
+                )
 
 
 if __name__ == "__main__":

@@ -85,6 +85,7 @@ def get_persistence_entity(
     unique_constraints_annotation="",
     dynamic_insert=False,
     include_all_args_builder=True,
+    enum_import_lines="",
 ):
     dynamic_insert_import = (
         "\nimport org.hibernate.annotations.DynamicInsert;" if dynamic_insert else ""
@@ -93,6 +94,7 @@ def get_persistence_entity(
     constructor_annotations = (
         "@AllArgsConstructor\n@Builder\n" if include_all_args_builder else ""
     )
+    enum_imports = f"{enum_import_lines}\n" if enum_import_lines else ""
     return f"""package {package};
 
 import jakarta.persistence.*;
@@ -103,7 +105,7 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;{dynam
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.math.BigDecimal;
-
+{enum_imports}
 @Entity
 @Table(name = "{entity_lower}s"{unique_constraints_annotation}){dynamic_insert_annotation}
 @Getter
@@ -116,7 +118,8 @@ public class {entity_name}JpaEntity {{
 """
 
 
-def get_dto(class_name, package, fields):
+def get_dto(class_name, package, fields, enum_import_lines=""):
+    enum_imports = f"{enum_import_lines}\n" if enum_import_lines else ""
     return f"""package {package};
 
 import jakarta.validation.constraints.*;
@@ -124,7 +127,7 @@ import lombok.Data;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.math.BigDecimal;
-
+{enum_imports}
 @Data
 public class {class_name} {{
 {fields}
@@ -244,16 +247,40 @@ public interface {entity_name}WebMapper {{
 """
 
 
-def get_persistence_mapper(entity_name, layout):
+def get_persistence_mapper(entity_name, layout, reference_attrs=None):
+    """reference_attrs: el dominio guarda '{campo}Id' (Integer) y la entidad
+    JPA guarda la relacion @ManyToOne; MapStruct no puede convertir uno en
+    otro sin una consulta a su repositorio, asi que aqui se ignoran y los
+    resuelve {entity_name}PersistenceAdapter (ver get_persistence_adapter)."""
+    reference_attrs = reference_attrs or []
+
+    def suffix(attr):
+        return attr["camel_name"][0].upper() + attr["camel_name"][1:]
+
+    to_jpa_ignores = "\n".join(
+        f'    @Mapping(target = "{attr["camel_name"]}", ignore = true)'
+        for attr in reference_attrs
+    )
+    to_jpa_block = f"{to_jpa_ignores}\n" if to_jpa_ignores else ""
+
+    to_domain_mappings = "\n".join(
+        f'    @Mapping(target = "{attr["camel_name"]}Id", '
+        f'expression = "java(entity.get{suffix(attr)}() != null ? '
+        f'entity.get{suffix(attr)}().getId() : null)")'
+        for attr in reference_attrs
+    )
+    to_domain_block = f"{to_domain_mappings}\n" if to_domain_mappings else ""
+    mapping_import = "\nimport org.mapstruct.Mapping;" if reference_attrs else ""
+
     return f"""package {layout.persistence_package};
 
 import {layout.domain_package}.{entity_name};
-import org.mapstruct.Mapper;
+import org.mapstruct.Mapper;{mapping_import}
 
 @Mapper(componentModel = "spring")
 public interface {entity_name}PersistenceMapper {{
-    {entity_name}JpaEntity toJpaEntity({entity_name} domain);
-    {entity_name} toDomain({entity_name}JpaEntity entity);
+{to_jpa_block}    {entity_name}JpaEntity toJpaEntity({entity_name} domain);
+{to_domain_block}    {entity_name} toDomain({entity_name}JpaEntity entity);
 }}
 """
 
@@ -303,12 +330,58 @@ final class {entity_name}JpaSpecifications {{
 """
 
 
-def get_persistence_adapter(entity_name, layout):
+def get_persistence_adapter(entity_name, layout, reference_attrs=None):
+    """reference_attrs: el mapper ignora esos campos (ver
+    get_persistence_mapper), asi que aqui se resuelven a mano contra el
+    repositorio JPA de la entidad referenciada antes de guardar. Al ser
+    save() el unico punto de escritura del puerto (create y update pasan
+    ambos por aqui), basta con resolver una vez."""
+    reference_attrs = reference_attrs or []
+
+    def suffix(attr):
+        return attr["camel_name"][0].upper() + attr["camel_name"][1:]
+
+    reference_imports = "\n".join(
+        f"import {layout.persistence_package}.{attr['references']}JpaEntity;\n"
+        f"import {layout.persistence_package}.{attr['references']}JpaRepository;"
+        for attr in reference_attrs
+    )
+    reference_imports_block = f"{reference_imports}\n" if reference_imports else ""
+
+    reference_fields = "\n".join(
+        f"    private final {attr['references']}JpaRepository {attr['camel_name']}Repository;"
+        for attr in reference_attrs
+    )
+    reference_fields_block = f"\n{reference_fields}" if reference_fields else ""
+
+    resolutions = "\n".join(
+        f"        jpaEntity.set{suffix(attr)}(resolve{suffix(attr)}(entity.get{suffix(attr)}Id()));"
+        for attr in reference_attrs
+    )
+    resolutions_block = f"\n{resolutions}" if resolutions else ""
+
+    resolvers = "\n\n".join(
+        f"    private {attr['references']}JpaEntity resolve{suffix(attr)}(Integer {attr['camel_name']}Id) {{\n"
+        f"        if ({attr['camel_name']}Id == null) {{\n"
+        "            return null;\n"
+        "        }\n"
+        f"        return {attr['camel_name']}Repository.findById({attr['camel_name']}Id)\n"
+        f'                .orElseThrow(() -> new ResourceNotFoundException('
+        f'"{attr["references"]} no encontrado: " + {attr["camel_name"]}Id));\n'
+        "    }"
+        for attr in reference_attrs
+    )
+    resolvers_block = f"\n\n{resolvers}" if resolvers else ""
+    exception_import = (
+        f"\nimport {layout.exception_package}.ResourceNotFoundException;"
+        if reference_attrs else ""
+    )
+
     return f"""package {layout.persistence_package};
 
 import {layout.domain_package}.{entity_name};
 import {layout.output_package}.{entity_name}PersistencePort;
-import lombok.RequiredArgsConstructor;
+{reference_imports_block}import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -316,7 +389,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.transaction.annotation.Transactional;
 import {layout.domain_package}.PageQuery;
-import {layout.domain_package}.PageResult;
+import {layout.domain_package}.PageResult;{exception_import}
 import java.util.Optional;
 
 @Component
@@ -325,11 +398,12 @@ import java.util.Optional;
 public class {entity_name}PersistenceAdapter implements {entity_name}PersistencePort {{
 
     private final {entity_name}JpaRepository repository;
-    private final {entity_name}PersistenceMapper mapper;
+    private final {entity_name}PersistenceMapper mapper;{reference_fields_block}
 
     @Override
     public {entity_name} save({entity_name} entity) {{
-        return mapper.toDomain(repository.save(mapper.toJpaEntity(entity)));
+        {entity_name}JpaEntity jpaEntity = mapper.toJpaEntity(entity);{resolutions_block}
+        return mapper.toDomain(repository.save(jpaEntity));
     }}
 
     @Override
@@ -353,7 +427,7 @@ public class {entity_name}PersistenceAdapter implements {entity_name}Persistence
     @Override
     public void delete({entity_name} entity) {{
         repository.delete(mapper.toJpaEntity(entity));
-    }}
+    }}{resolvers_block}
 }}
 """
 
@@ -613,6 +687,7 @@ def get_controller_test(
     has_required_fields,
     invalid_assignments,
     endpoints=None,
+    enum_import_lines="",
 ):
     endpoints = set(endpoints) if endpoints else set(DEFAULT_ENDPOINTS)
 
@@ -692,7 +767,10 @@ def get_controller_test(
 
     needs_idempotency = "create" in endpoints
 
-    imports = [
+    imports = []
+    if enum_import_lines:
+        imports.append(enum_import_lines)
+    imports += [
         f"import {layout.domain_package}.{entity_name};",
         f"import {layout.domain_package}.PageResult;",
         f"import {layout.dto_package}.*;",

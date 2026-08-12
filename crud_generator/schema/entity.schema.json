@@ -11,7 +11,7 @@
     "architecture": {
       "type": "string",
       "enum": ["layered", "hexagonal", "clean"],
-      "description": "Por defecto 'layered'. El formato multi-entidad ('entities') solo admite 'layered' por ahora."
+      "description": "Por defecto 'layered'. Valido tanto para una entidad como para 'entities' (multi-entidad con relaciones)."
     },
     "package": {
       "type": "string",
@@ -142,7 +142,7 @@
           "pattern": "^[A-Za-z][A-Za-z0-9_-]*$",
           "description": "Nombre del directorio generado (crud-{project}). Por defecto, la primera entidad de la lista."
         },
-        "architecture": { "$ref": "#/definitions/architecture", "enum": ["layered"] },
+        "architecture": { "$ref": "#/definitions/architecture" },
         "package": { "$ref": "#/definitions/package" },
         "endpoints": { "$ref": "#/definitions/endpoints" },
         "entities": {

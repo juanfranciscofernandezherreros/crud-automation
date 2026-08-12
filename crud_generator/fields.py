@@ -133,19 +133,33 @@ def generate_table_unique_constraints_annotation(attrs):
 
 
 def generate_plain_fields(attrs):
-    fields = [
-        f"    private {attr['java_type']} {attr['camel_name']};" for attr in attrs
-    ]
+    """Campos del modelo de dominio (hexagonal/clean): un objeto de datos
+    plano, sin anotaciones JPA. Una 'reference' se representa como el mismo
+    '{campo}Id' (Integer) que usan los DTO, no como el objeto relacionado:
+    el dominio no tiene acceso a un repositorio para resolverlo, eso lo hace
+    el adaptador de persistencia (ver ports_templates.get_persistence_adapter)."""
+    fields = []
+    for attr in attrs:
+        if attr["type"] == "reference":
+            fields.append(f"    private Integer {attr['camel_name']}Id;")
+        else:
+            fields.append(f"    private {attr['java_type']} {attr['camel_name']};")
     fields.append("    private Long version;")
     return "\n".join(fields)
 
 
 def generate_domain_update_statements(attrs, patch=False):
+    """El modelo de dominio (hexagonal/clean) representa una 'reference'
+    como '{campo}Id' (ver generate_plain_fields), no como el objeto
+    relacionado, asi que el getter/setter correspondiente lleva el sufijo
+    'Id' igual que en los DTO."""
     lines = []
     for attr in attrs:
         if attr["is_id"] or attr["is_audit"]:
             continue
         suffix = attr["camel_name"][0].upper() + attr["camel_name"][1:]
+        if attr["type"] == "reference":
+            suffix += "Id"
         assignment = f"current.set{suffix}({'changes' if patch else 'replacement'}.get{suffix}());"
         if patch:
             lines.append(
@@ -158,7 +172,11 @@ def generate_domain_update_statements(attrs, patch=False):
     return "\n".join(lines)
 
 
-def generate_entity_fields(attrs):
+def generate_entity_fields(attrs, reference_type_suffix=""):
+    """reference_type_suffix: layered no lo necesita ('Cliente' es a la vez
+    el dominio y la entidad JPA), pero en hexagonal/clean la entidad JPA de
+    una 'reference' debe apuntar a la clase de persistencia de la entidad
+    referenciada ('ClienteJpaEntity'), no a su modelo de dominio ('Cliente')."""
     lines = []
     for attr in attrs:
         if attr["is_id"]:
@@ -181,10 +199,11 @@ def generate_entity_fields(attrs):
             )
         elif attr["type"] == "reference":
             nullable = ", nullable = false" if attr["validations"].get("required") else ""
+            referenced_type = f"{attr['java_type']}{reference_type_suffix}"
             lines.append(
                 "    @ManyToOne(fetch = FetchType.LAZY)\n"
                 f"    @JoinColumn(name = \"{attr['sql_column']}\"{nullable})\n"
-                f"    private {attr['java_type']} {attr['camel_name']};"
+                f"    private {referenced_type} {attr['camel_name']};"
             )
         else:
             initializer = (

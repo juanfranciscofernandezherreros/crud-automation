@@ -1,17 +1,5 @@
 # Reglas del repositorio: crud-automation
 
-## Límite de 255 parámetros de constructor (JVM)
-
-**Error encontrado:** al generar una entidad con muchos campos (se disparó con
-una entidad real de 273 campos, un esquema de reporting tipo EMIR/SFTR),
-`@AllArgsConstructor` + `@Builder` de Lombok producen un constructor con un
-parámetro por campo. Contando `id` y `version`, eso dio 275 parámetros. La
-JVM (JVMS §4.11) limita cualquier método o constructor a 255 parámetros,
-contando la referencia implícita al objeto (`this`). La compilación falla
-con `too many parameters` antes de ejecutar nada. Ningún caso de prueba
-anterior lo había disparado porque las entidades de ejemplo del repositorio
-tenían entre 3 y 10 campos.
-
 **Mejora aplicada:** `crud_generator/fields.py` expone
 `exceeds_constructor_param_limit(attrs)` (umbral 254, dejando margen para
 `id` + `version`). `generator.py` y `ports_generator.py` la consultan antes

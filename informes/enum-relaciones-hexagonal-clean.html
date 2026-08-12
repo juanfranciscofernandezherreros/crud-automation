@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Enum y relaciones en hexagonal/clean | crud-automation</title>
+<style>
+  :root{--ink:#17211c;--muted:#58645e;--paper:#f7f8f5;--surface:#fff;--line:#d9dfda;
+        --green:#176b4b;--green-dark:#0f4934;--amber:#b66b13;--danger:#a33a32;--code-bg:#111915;}
+  *{box-sizing:border-box}
+  body{margin:0;color:var(--ink);background:var(--paper);font-family:Inter,ui-sans-serif,system-ui,"Segoe UI",sans-serif;line-height:1.6}
+  header{padding:36px max(24px,calc((100vw - 900px)/2));color:#fff;background:var(--ink);border-bottom:3px solid var(--amber)}
+  header a{color:#e7eee9;text-decoration:none;font-size:14px}
+  h1{margin:10px 0 6px;font-size:32px}
+  header p{margin:0;color:#cfd9d2;max-width:720px}
+  main{width:min(900px,calc(100% - 48px));margin:0 auto;padding:40px 0 80px}
+  section{margin-bottom:44px;padding-bottom:36px;border-bottom:1px solid var(--line)}
+  section:last-child{border-bottom:0}
+  .eyebrow{display:inline-block;margin-bottom:8px;color:var(--green-dark);font:700 12px/1.2 "Cascadia Code",Consolas,monospace;text-transform:uppercase}
+  h2{margin:0 0 10px;font-size:24px}
+  h3{margin:22px 0 8px;font-size:16px;color:var(--green-dark)}
+  p{margin:0 0 12px;color:#2c352f}
+  .lead{color:var(--muted);font-size:16px;max-width:760px}
+  table{width:100%;border-collapse:collapse;margin:14px 0;background:var(--surface);border:1px solid var(--line);font-size:14px}
+  th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:var(--green-dark);color:#fff;font-size:12px;text-transform:uppercase}
+  tr:last-child td{border-bottom:0}
+  code{font-family:"Cascadia Code",Consolas,monospace;background:#eef2ef;color:var(--green-dark);padding:1px 5px;border-radius:3px;font-size:.92em}
+  pre{overflow-x:auto;margin:12px 0;padding:16px 18px;color:#e8eee9;background:var(--code-bg);border:1px solid #2e3933;border-radius:6px;font:13px/1.6 "Cascadia Code",Consolas,monospace;white-space:pre}
+  .callout{margin:16px 0;padding:14px 16px;background:#edf6f1;border-left:4px solid var(--green);border-radius:0 6px 6px 0;font-size:14px}
+  .callout.warn{background:#fff7e9;border-color:var(--amber)}
+  .callout.danger{background:#fbe9e7;border-color:var(--danger)}
+  .badge{display:inline-block;padding:2px 9px;border-radius:20px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;background:#e3f2ea;color:var(--green-dark);margin-left:8px;vertical-align:middle}
+  .badge.fix{background:#fbe9e7;color:var(--danger)}
+  footer{padding:24px;color:#cad5ce;background:var(--ink);text-align:center;font-size:12.5px}
+</style>
+</head>
+<body>
+<header>
+  <a href="index.html">&larr; Informes crud-automation</a>
+  <h1>Enum y relaciones ahora en hexagonal y clean</h1>
+  <p class="lead">Tras la sesión anterior (overwrite guard, migraciones incrementales, CI/observabilidad, <code>enum</code>, relaciones multi-entidad, JSON Schema y Cucumber+Allure), se pidió una valoración del generador. La brecha más grande señalada fue que <code>enum</code> y las relaciones <code>reference</code> solo funcionaban con <code>architecture: "layered"</code>. Esta sesión cierra esa brecha para <code>hexagonal</code> y <code>clean</code>.</p>
+</header>
+<main>
+
+  <section>
+    <span class="eyebrow">Contexto</span>
+    <h2>Por qué no era trivial reutilizar lo ya hecho</h2>
+    <p>En <code>layered</code>, la clase <code>{Entity}.java</code> es a la vez el modelo que ve la API y la entidad JPA: una <code>reference</code> se representa igual en todas partes salvo en el DTO. En <code>hexagonal</code>/<code>clean</code> hay <strong>tres</strong> representaciones distintas de la misma entidad — el modelo de dominio (objeto plano, sin JPA, sin acceso a repositorios), la entidad JPA (<code>{Entity}JpaEntity</code>, en el paquete de persistencia) y el DTO — y el dominio no puede resolver una referencia por sí solo porque no tiene forma de consultar un repositorio. Portar la función tal cual habría compilado pero apuntado al modelo de dominio equivocado (<code>Cliente</code> en vez de <code>ClienteJpaEntity</code>) en la entidad JPA.</p>
+    <h3>Diseño elegido</h3>
+    <table>
+      <thead><tr><th>Capa</th><th>Campo <code>cliente</code> (reference)</th></tr></thead>
+      <tbody>
+        <tr><td>Dominio (<code>Pedido</code>)</td><td><code>Integer clienteId</code> — igual que el DTO; sin acceso a repositorio, no puede resolver el objeto.</td></tr>
+        <tr><td>Entidad JPA (<code>PedidoJpaEntity</code>)</td><td><code>@ManyToOne</code> a <code>ClienteJpaEntity</code> (no a <code>Cliente</code>, el dominio).</td></tr>
+        <tr><td>DTO</td><td><code>Integer clienteId</code>.</td></tr>
+      </tbody>
+    </table>
+    <p>Como dominio y DTO quedan simétricos (los dos usan <code>clienteId</code>), <code>{Entity}WebMapper</code> no necesita ningún <code>@Mapping</code> especial — MapStruct los empareja solo. Solo hacen falta cambios en <code>{Entity}PersistenceMapper</code> (ignora <code>cliente</code> en ambas direcciones, igual que el mapper de DTO en layered) y en <code>{Entity}PersistenceAdapter</code>, que resuelve la referencia contra el repositorio JPA correspondiente justo antes de guardar — en <code>save()</code>, el único punto de escritura del puerto, así que cubre alta y actualización con el mismo código.</p>
+  </section>
+
+  <section>
+    <span class="eyebrow">Hallazgo 1 · Bug real de compilación</span>
+    <h2><code>PedidoService</code> llamaba a <code>getCliente()</code>/<code>setCliente()</code>, que no existen<span class="badge fix">fix</span></h2>
+    <p>La primera generación+compilación de un proyecto hexagonal con relaciones falló:</p>
+    <pre>[ERROR] PedidoService.java:[36,39] cannot find symbol
+  symbol:   method getCliente()
+  location: variable replacement of type com.miempresa.ventas.domain.model.Pedido</pre>
+    <p><code>generate_domain_update_statements()</code> (compartida entre <code>update</code>/<code>patch</code> del <code>Service</code> puro de hexagonal/clean) construye el nombre del getter/setter a partir de <code>camel_name</code> sin más — correcto para un campo normal, pero para una <code>reference</code> el dominio en realidad expone <code>getClienteId()</code>/<code>setClienteId()</code>, no <code>getCliente()</code>/<code>setCliente()</code>. Ningún test cubría esta función hasta ahora.</p>
+    <h3>Corrección</h3>
+    <p><code>fields.py</code>: cuando <code>attr["type"] == "reference"</code>, el sufijo del accessor lleva <code>Id</code> añadido. Cubierto con <code>test_domain_update_statements_use_the_id_suffixed_accessor</code> en <code>tests/test_fields.py</code>.</p>
+  </section>
+
+  <section>
+    <span class="eyebrow">Hallazgo 2 · Bug real de compilación</span>
+    <h2>El test del controller de ports se quedó sin la variable que usa<span class="badge fix">fix</span></h2>
+    <pre>[ERROR] PedidoControllerTest.java:[45,9] cannot find symbol
+  symbol:   variable dto</pre>
+    <p>Al extender <code>ports_generator.py</code> se copió, por descuido, la convención de nombre de variable (<code>dto</code>) que usan los <em>steps</em> de Cucumber de <code>layered</code> — pero <code>ports_templates.get_controller_test()</code> construye su DTO de prueba como <code>createDTO</code>, no como <code>dto</code>. Se detectó igual que el hallazgo anterior: al compilar el proyecto generado, no en los tests unitarios de Python (que no ejecutan <code>javac</code>).</p>
+    <h3>Corrección</h3>
+    <p>Se quitó el <code>variable_name="dto"</code> pasado de más en <code>ports_generator.py</code>. Cubierto con <code>test_ports_controller_test_builds_the_dto_as_createDTO</code> en <code>tests/test_templates.py</code>, que fija explícitamente el nombre de variable esperado para que una futura reutilización cruzada no vuelva a mezclarlos.</p>
+    <div class="callout warn">
+      <strong>Patrón que se repite:</strong> los dos bugs de esta sesión (y varios de la anterior) son inconsistencias de nombres entre capas que <code>python -m pytest</code> no detecta porque cada función de plantilla se prueba de forma aislada, con cadenas sueltas — el contrato real entre dos plantillas generadas (qué variable declara una, qué variable espera otra) solo se verifica compilando el proyecto completo con <code>mvn</code>. Por eso la regla del repositorio insiste en generar+compilar antes de dar una plantilla por válida, no solo correr la suite de Python.
+    </div>
+  </section>
+
+  <section>
+    <span class="eyebrow">Resultado</span>
+    <h2>Estado final verificado</h2>
+    <p><code>python -m pytest -q</code> &#8594; 133 tests en verde, más la suite de aceptación (<code>mvn verify</code> real sobre layered/hexagonal/clean, sin las features nuevas, para confirmar que el refactor de <code>ports_generator.py</code> no rompió el caso base).</p>
+    <table>
+      <thead><tr><th>Caso</th><th>Arquitectura</th><th>Verificación</th></tr></thead>
+      <tbody>
+        <tr><td><code>enum</code> (entidad simple)</td><td>hexagonal</td><td>Generado + <code>mvn test-compile</code> + 8 tests unitarios/controller en verde.</td></tr>
+        <tr><td><code>enum</code> (entidad simple)</td><td>clean</td><td>Generado + <code>mvn test-compile</code> + 8 tests unitarios/controller en verde.</td></tr>
+        <tr><td>Relación <code>reference</code> (Cliente + Pedido)</td><td>hexagonal</td><td>Generado + <code>mvn test-compile</code> + 16 tests unitarios/controller en verde (ambas entidades).</td></tr>
+        <tr><td>Relación <code>reference</code> (Cliente + Pedido)</td><td>clean</td><td>Generado + <code>mvn test-compile</code> + 16 tests unitarios/controller en verde (ambas entidades).</td></tr>
+      </tbody>
+    </table>
+    <div class="callout warn">
+      <strong>Verificación no repetida en esta sesión:</strong> la sesión anterior sí probó las relaciones end-to-end contra Docker real (Postgres, FK real, 404 con id inexistente, PATCH parcial) para <code>layered</code>. Para <code>hexagonal</code>/<code>clean</code>, Docker Desktop no estaba disponible en esta máquina en el momento de verificar, así que la confianza aquí viene de compilación real + tests unitarios/MVC reales, no de un <code>docker compose up</code> con peticiones HTTP de verdad. La lógica del adaptador de persistencia es estructuralmente idéntica a la ya probada en <code>layered</code> (mismo patrón resolver-o-404), pero queda pendiente una verificación con Docker si se quiere el mismo nivel de confianza.
+    </div>
+    <p>Con esto, <code>enum</code> y las relaciones <code>reference</code> del formato multi-entidad funcionan igual en las tres arquitecturas que ofrece el generador. Sigue pendiente lo que ya se señaló como fuera de alcance: el DSL de texto (sin JSON) no soporta ninguno de los dos, ni hay <code>@OneToMany</code>/<code>@ManyToMany</code>, solo <code>@ManyToOne</code>.</p>
+  </section>
+
+</main>
+<footer>Informe de la sesión de trabajo sobre <code>crud_generator/</code>, repositorio crud-automation.</footer>
+</body>
+</html>

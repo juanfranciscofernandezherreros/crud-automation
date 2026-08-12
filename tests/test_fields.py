@@ -221,5 +221,71 @@ class EnumFieldGenerationTest(unittest.TestCase):
         )
 
 
+class ReferenceFieldGenerationTest(unittest.TestCase):
+    def _attrs(self):
+        return parse_attributes_from_fields(
+            [
+                {"name": "id", "type": "int"},
+                {
+                    "name": "cliente",
+                    "type": "reference",
+                    "references": "Cliente",
+                    "required": True,
+                    "index": True,
+                },
+                {"name": "total", "type": "decimal", "precision": 10, "scale": 2},
+            ]
+        )
+
+    def test_sql_column_is_the_id_suffixed_name_with_fk_constraint(self):
+        sql = generate_sql_fields(self._attrs(), table_name="pedidos")
+        self.assertIn("cliente_id INT NOT NULL REFERENCES clientes(id)", sql)
+
+    def test_sql_index_uses_the_id_suffixed_column(self):
+        indexes = generate_sql_indexes(self._attrs(), "pedidos")
+        self.assertIn("idx_pedidos_cliente_id ON pedidos (cliente_id)", indexes)
+
+    def test_layered_entity_field_holds_the_referenced_type_directly(self):
+        entity_fields = generate_entity_fields(self._attrs())
+        self.assertIn("@ManyToOne(fetch = FetchType.LAZY)", entity_fields)
+        self.assertIn('@JoinColumn(name = "cliente_id", nullable = false)', entity_fields)
+        self.assertIn("private Cliente cliente;", entity_fields)
+
+    def test_ports_entity_field_holds_the_jpa_entity_type_with_suffix(self):
+        # En hexagonal/clean la entidad JPA no puede apuntar al modelo de
+        # dominio de la entidad referenciada: debe apuntar a SU entidad JPA.
+        entity_fields = generate_entity_fields(self._attrs(), reference_type_suffix="JpaEntity")
+        self.assertIn("private ClienteJpaEntity cliente;", entity_fields)
+
+    def test_domain_model_holds_only_the_id_not_the_referenced_object(self):
+        # El dominio (hexagonal/clean) no tiene acceso a un repositorio para
+        # resolver la referencia, asi que guarda el mismo '{campo}Id' que los DTO.
+        from crud_generator.fields import generate_plain_fields
+
+        plain_fields = generate_plain_fields(self._attrs())
+        self.assertIn("private Integer clienteId;", plain_fields)
+        self.assertNotIn("private Cliente cliente;", plain_fields)
+
+    def test_dto_field_is_the_id_not_the_referenced_object(self):
+        dto_fields = generate_dto_fields(self._attrs(), ignore_id=True, ignore_audit=True)
+        self.assertIn("private Integer clienteId;", dto_fields)
+        self.assertNotIn("Cliente cliente", dto_fields)
+
+    def test_domain_update_statements_use_the_id_suffixed_accessor(self):
+        # Bug real: generaba current.setCliente(replacement.getCliente()),
+        # pero el dominio solo tiene getClienteId()/setClienteId() (ver
+        # generate_plain_fields) — no compilaba.
+        from crud_generator.fields import generate_domain_update_statements
+
+        update = generate_domain_update_statements(self._attrs())
+        self.assertIn("current.setClienteId(replacement.getClienteId());", update)
+        self.assertNotIn("getCliente()", update)
+        self.assertNotIn("setCliente(", update)
+
+        patch = generate_domain_update_statements(self._attrs(), patch=True)
+        self.assertIn("if (changes.getClienteId() != null)", patch)
+        self.assertIn("current.setClienteId(changes.getClienteId());", patch)
+
+
 if __name__ == "__main__":
     unittest.main()

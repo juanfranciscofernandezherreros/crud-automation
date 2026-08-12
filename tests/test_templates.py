@@ -232,5 +232,68 @@ class CucumberAllureTest(unittest.TestCase):
         self.assertNotIn("createDTO.set", steps)
 
 
+class PortsEnumAndReferenceTest(unittest.TestCase):
+    """Enum y 'reference' en hexagonal/clean (ports_templates.py), la
+    contraparte de lo ya cubierto para layered."""
+
+    def setUp(self):
+        from crud_generator.architectures import build_ports_architectures
+
+        self.layout = build_ports_architectures("com.example.crud")["hexagonal"]
+
+    def test_ports_controller_test_builds_the_dto_as_createDTO(self):
+        # Bug real encontrado al extender esto a ports: se paso
+        # variable_name="dto" (pensado para los steps de Cucumber de
+        # layered) a una llamada que en realidad alimenta
+        # ports_templates.get_controller_test, cuyo test 'create_ValidInput'
+        # declara la variable local como 'createDTO'. No compilaba.
+        test_file = ports_templates.get_controller_test(
+            "Producto", "producto", self.layout,
+            "        createDTO.setNombre(\"x\");",
+            True, "", ["list", "get", "create"],
+        )
+        self.assertIn("ProductoCreateDTO createDTO = new ProductoCreateDTO();", test_file)
+        self.assertIn("createDTO.setNombre(", test_file)
+        self.assertNotIn("dto.setNombre(", test_file)
+
+    def test_persistence_entity_and_dto_accept_enum_import_lines(self):
+        entity_file = ports_templates.get_persistence_entity(
+            "Pedido", "pedido", self.layout.persistence_package, "    private Estado estado;",
+            enum_import_lines="import com.example.crud.domain.model.Estado;",
+        )
+        dto_file = ports_templates.get_dto(
+            "PedidoCreateDTO", self.layout.dto_package, "    private Estado estado;",
+            enum_import_lines="import com.example.crud.domain.model.Estado;",
+        )
+        for generated in (entity_file, dto_file):
+            self.assertIn("import com.example.crud.domain.model.Estado;", generated)
+
+    def test_persistence_mapper_ignores_the_reference_field_both_ways(self):
+        reference_attrs = [{"camel_name": "cliente", "references": "Cliente"}]
+        mapper = ports_templates.get_persistence_mapper("Pedido", self.layout, reference_attrs)
+        self.assertIn('@Mapping(target = "cliente", ignore = true)', mapper)
+        self.assertIn(
+            '@Mapping(target = "clienteId", '
+            'expression = "java(entity.getCliente() != null ? '
+            'entity.getCliente().getId() : null)")',
+            mapper,
+        )
+
+    def test_persistence_adapter_resolves_the_reference_before_saving(self):
+        reference_attrs = [{"camel_name": "cliente", "references": "Cliente"}]
+        adapter = ports_templates.get_persistence_adapter("Pedido", self.layout, reference_attrs)
+        self.assertIn("private final ClienteJpaRepository clienteRepository;", adapter)
+        self.assertIn("jpaEntity.setCliente(resolveCliente(entity.getClienteId()));", adapter)
+        self.assertIn("private ClienteJpaEntity resolveCliente(Integer clienteId)", adapter)
+        self.assertIn(
+            'new ResourceNotFoundException("Cliente no encontrado: " + clienteId)', adapter
+        )
+
+    def test_persistence_adapter_without_references_stays_unchanged(self):
+        adapter = ports_templates.get_persistence_adapter("Producto", self.layout)
+        self.assertNotIn("Repository;\n    private final", adapter)
+        self.assertNotIn("resolve", adapter)
+
+
 if __name__ == "__main__":
     unittest.main()

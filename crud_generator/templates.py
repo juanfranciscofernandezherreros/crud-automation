@@ -612,9 +612,9 @@ public class {entity_name} {{
 }}
 """
 
-def get_enum_class(enum_class, values):
+def get_enum_class(enum_class, values, package="com.example.crud.entity"):
     constants = ", ".join(values)
-    return f"""package com.example.crud.entity;
+    return f"""package {package};
 
 public enum {enum_class} {{
     {constants}

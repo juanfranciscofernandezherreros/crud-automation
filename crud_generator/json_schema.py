@@ -19,8 +19,8 @@ Formato de una sola entidad::
 se indica en la CLI). A diferencia del DSL de texto, los valores de las reglas
 ("default", etc.) no tienen restricción de caracteres.
 
-Formato multi-entidad, con relaciones @ManyToOne entre ellas (solo soportado con
-architecture "layered")::
+Formato multi-entidad, con relaciones @ManyToOne entre ellas (layered, hexagonal
+y clean)::
 
     {
         "project": "ventas",
@@ -36,8 +36,10 @@ architecture "layered")::
     }
 
 Un campo "reference" genera una columna "{name}_id", una relación @ManyToOne en la
-entidad y un "{name}Id" (Integer) en los DTOs; el servicio de la entidad que
-referencia resuelve el ID contra el repositorio de la entidad referenciada antes de
+entidad JPA y un "{name}Id" (Integer) en los DTOs (y, en hexagonal/clean, tambien
+en el modelo de dominio: el dominio no tiene acceso a un repositorio). Quien
+resuelve el ID contra el repositorio de la entidad referenciada es el service
+(layered) o el adaptador de persistencia (hexagonal/clean), justo antes de
 guardar. "references" debe nombrar otra entidad del mismo "entities" (o la propia
 entidad, para relaciones reflexivas como un arbol de categorias).
 """

@@ -64,7 +64,7 @@ def generate_project(
 def generate_project_from_json(json_path, architecture_override=None, overwrite=False):
     """Igual que generate_project(), pero leyendo entidad(es) y campos de un JSON.
     Si el JSON define varias entidades ('entities'), delega en el generador
-    multi-entidad (solo disponible con architecture 'layered')."""
+    multi-entidad correspondiente a la arquitectura elegida."""
     from .json_schema import is_multi_entity_document, load_entities_schema, load_schema
 
     if is_multi_entity_document(json_path):
@@ -78,14 +78,15 @@ def generate_project_from_json(json_path, architecture_override=None, overwrite=
         architecture = normalize_architecture(
             architecture_override or architecture_from_json or "layered"
         )
-        if architecture != "layered":
-            raise DefinitionError(
-                "El formato multi-entidad ('entities', con relaciones 'reference') "
-                "solo esta soportado con --architecture layered por ahora. Usa una "
-                "entidad por fichero para hexagonal/clean."
-            )
         base_package = base_package or DEFAULT_BASE_PACKAGE
         command_hint = f"__JSON__:{json_path}"
+        if architecture in PORTS_ARCHITECTURES:
+            from .ports_generator import generate_multi_entity_ports_project
+
+            layout = build_ports_architectures(base_package)[architecture]
+            return generate_multi_entity_ports_project(
+                project_name, entities, layout, command_hint, base_package, endpoints, overwrite
+            )
         return generate_multi_entity_layered_project(
             project_name, entities, command_hint, base_package, endpoints, overwrite
         )

@@ -37,6 +37,11 @@
     <h2>Hallazgos y mejoras del generador</h2>
     <p>Las cuatro limitaciones de expresividad, el bug de compilación (límite de 255 parámetros de la JVM) y los dos bugs de producción (orden por propiedad inválida, filtro con valor inválido) encontrados reproduciendo un esquema real de 273 columnas y levantándolo en Docker; el filtrado genérico por query params pedido después; y la nueva vía de definición de entidades por JSON, con el bug de propagación de <code>package</code>/<code>endpoints</code> que trajo consigo.</p>
   </a>
+  <a class="card" href="enum-relaciones-hexagonal-clean.html">
+    <span class="eyebrow">03 · Enum y relaciones en hexagonal/clean</span>
+    <h2>Enum y relaciones ahora en hexagonal y clean</h2>
+    <p>Tras puntuar el generador y señalar que <code>enum</code>/<code>reference</code> solo funcionaban con <code>architecture: "layered"</code>, se extendieron a <code>hexagonal</code> y <code>clean</code>: el dominio guarda el id de la relación, no el objeto, y el adaptador de persistencia lo resuelve. Dos bugs reales de compilación encontrados y corregidos por el camino.</p>
+  </a>
 </main>
 <footer>Generado durante la sesión de trabajo sobre <code>crud_generator/</code>.</footer>
 </body>

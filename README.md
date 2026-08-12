@@ -100,7 +100,8 @@ valida contra los ejemplos de `examples/` cuando `jsonschema` esta instalado
 ### Varias entidades relacionadas (`entities`)
 
 Para relaciones `@ManyToOne` entre dos o mas entidades, usa `entities` en vez
-de `entity`/`fields` (solo con `architecture: "layered"`, o sin indicarla):
+de `entity`/`fields`. Funciona con las tres arquitecturas (`layered`,
+`hexagonal`, `clean`):
 
 ```json
 {
@@ -131,12 +132,18 @@ Un campo `type: "reference"` con `references: "<OtraEntidad>"` genera, para
 
 - La columna `cliente_id INT [NOT NULL] REFERENCES clientes(id)` en la
   migracion Flyway (con `CREATE INDEX` si ademas se indica `index: true`).
-- `@ManyToOne(fetch = FetchType.LAZY)` + `@JoinColumn` en la entidad JPA.
+- `@ManyToOne(fetch = FetchType.LAZY)` + `@JoinColumn` en la entidad JPA
+  (`PedidoJpaEntity` en hexagonal/clean, `Pedido` en layered).
 - Un campo `clienteId` (`Integer`) en cada DTO, no el objeto completo (evita
-  ciclos de serializacion y sobre-carga de datos).
-- En `PedidoServiceImpl`, resolucion contra `ClienteRepository`: `create`
-  y `update` siempre resuelven `clienteId` (404 `ResourceNotFoundException`
-  si no existe); `patch` solo lo toca si el DTO lo incluye.
+  ciclos de serializacion y sobre-carga de datos). En hexagonal/clean, el
+  modelo de dominio (`Pedido`) tambien guarda `clienteId`, no el objeto: el
+  dominio no tiene acceso a un repositorio para resolverlo.
+- Resolucion contra el repositorio de `Cliente` justo antes de guardar:
+  en layered, en `PedidoServiceImpl` (`create`/`update` siempre resuelven
+  `clienteId`, 404 `ResourceNotFoundException` si no existe; `patch` solo lo
+  toca si el DTO lo incluye); en hexagonal/clean, en
+  `PedidoPersistenceAdapter.save()` (el unico punto de escritura del puerto,
+  cubre create y update por igual).
 
 `references` puede apuntar a otra entidad de la misma lista o a si misma
 (relaciones reflexivas, p.ej. un arbol de categorias vía `padre`). Las
@@ -152,10 +159,12 @@ primera entidad listada.
 ```
 
 `values` son las constantes del enum Java generado (`MAYUSCULAS_CON_GUION_BAJO`,
-al menos dos). El generador escribe una clase `Estado.java` junto a la entidad,
-anota el campo con `@Enumerated(EnumType.STRING)` y agrega
-`CHECK (estado IN (...))` en Flyway. Disponible solo vía JSON (no en el DSL de
-texto) y, por ahora, solo con `architecture: "layered"`.
+al menos dos). El generador escribe una clase `Estado.java` junto a la entidad
+(`entity/` en layered, `domain/model/` en hexagonal/clean, para que quede en
+el mismo paquete que el dominio y no haga falta importarla ahi), anota el
+campo con `@Enumerated(EnumType.STRING)` en la entidad JPA y agrega
+`CHECK (estado IN (...))` en Flyway. Funciona en las tres arquitecturas;
+disponible solo vía JSON, no en el DSL de texto.
 
 ## Campos y reglas
 
