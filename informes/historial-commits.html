@@ -157,6 +157,20 @@
     <div class="stat">1 fichero · <b>+29 / -25</b> líneas</div>
   </div>
 
+  <div class="commit fix">
+    <div class="meta"><span class="hash">b0388f6</span><span class="date">2026-08-12</span><span class="tag fix">fix</span></div>
+    <h2>fix: excluye ejemplos no-CRUD de la validación de entity.schema.json</h2>
+    <p><code>test_every_bundled_example_validates</code> validaba <em>todos</em> los ficheros de <code>examples/</code> contra el JSON Schema de entidad CRUD, pero <code>examples/sales-streams.json</code> (añadido para <code>--stream</code>) no es una definición de entidad y nunca podía validar contra ese schema — la suite llevaba roja desde ese commit sin que nadie lo notara hasta ahora. Filtra por la presencia de <code>entity</code>/<code>entities</code> en el documento antes de validar.</p>
+    <div class="stat">1 fichero · <b>+8 / -2</b> líneas</div>
+  </div>
+
+  <div class="commit">
+    <div class="meta"><span class="hash">8400a4c</span><span class="date">2026-08-12</span><span class="tag chore">refactor</span></div>
+    <h2>refactor: extrae shared_templates.py para eliminar duplicación entre templates.py y ports_templates.py</h2>
+    <p>Pedido explícito del usuario tras valorar el proyecto: la mayor fuente de riesgo era que <code>templates.py</code> (layered) y <code>ports_templates.py</code> (hexagonal/clean) reimplementaban cada uno por su lado la entidad JPA, el DTO y la resolución de campos <code>reference</code> contra su repositorio — casi carácter por carácter iguales — así que un fix aplicado a una arquitectura era fácil de olvidar en la otra. El nuevo módulo <code>shared_templates.py</code> centraliza esa lógica (<code>render_jpa_entity_class</code>, <code>render_dto_class</code>, los cuatro helpers de resolución de <code>reference</code>, <code>capitalize_first</code>), y las funciones equivalentes de ambos ficheros delegan en él. Verificado volcando a fichero la salida de 20 combinaciones (con/sin reference, con/sin enum, wide entity, las tres arquitecturas) antes y después: 17 de 20 idénticas byte a byte, las 3 restantes difieren solo en una línea en blanco sin efecto en compilación. Además de la suite completa (161 tests) y la aceptación con <code>mvn verify</code> sobre 5 proyectos reales, se generó y compiló una entidad de 263 campos con <code>reference</code> y <code>enum</code> en layered y hexagonal — el caso que más estresa el código tocado.</p>
+    <div class="stat">3 ficheros · <b>+193 / -158</b> líneas</div>
+  </div>
+
   <div class="callout">
     Los commits <code>e1fddaf</code> a <code>fa12969</code> son los que motivaron el informe de hallazgos:
     surgieron al usar el generador contra un esquema de producción real en vez de los ejemplos de 3-10 campos
