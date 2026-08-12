@@ -263,6 +263,71 @@ python .\generate_crud.py OperacionFinanciera `
 mvn -f .\crud-operacionfinanciera-clean\pom.xml verify
 ```
 
+## Generacion de proyectos Kafka Streams (`--stream`)
+
+Ademas de proyectos CRUD, el generador puede crear un microservicio Spring
+Boot + Spring Kafka + Kafka Streams a partir de una definicion JSON:
+
+```powershell
+python .\generate_crud.py --stream .\sales-streams.json
+```
+
+No es un DSL general para topologias arbitrarias: generaliza un patron
+concreto y ya probado — filtrar un topic de entrada por un umbral numerico
+opcional, reagrupar por una clave, sumar con estado (KTable en RocksDB) y
+unir el stream original con esa tabla para producir un evento enriquecido
+con el total acumulado. Windowing, branch, joins entre streams o multiples
+agregaciones quedan fuera de este patron.
+
+```json
+{
+  "project": "sales-streams",
+  "package": "com.example.sales",
+  "input": {
+    "topic": "orders-topic1",
+    "event": "Order",
+    "fields": [
+      {"name": "order_id", "type": "string"},
+      {"name": "customer_id", "type": "string"},
+      {"name": "amount", "type": "double"}
+    ]
+  },
+  "output": {"topic": "total-sales-topic1", "event": "OrderWithTotal"},
+  "processing": {
+    "group_by_field": "customer_id",
+    "aggregate_field": "amount",
+    "aggregate_as": "total_amount",
+    "filter_field": "amount",
+    "filter_operator": ">",
+    "filter_value": 10
+  }
+}
+```
+
+Reglas:
+
+- `project` y `package` siguen las mismas convenciones que en la definicion
+  CRUD (`project` en minusculas/guiones, `package` en minusculas separadas
+  por puntos).
+- `input.fields`/`processing.group_by_field` describen el evento de entrada;
+  `processing.group_by_field` debe ser `string` (se usa como clave de Kafka
+  tras reagrupar, con `"UNKNOWN"` si el valor es null).
+- `processing.aggregate_field` debe ser `double` (tipo del acumulador y del
+  Serde del store en esta primera version).
+- `processing.filter_field`/`filter_operator`/`filter_value` son opcionales
+  (juntos, o ninguno): sin ellos no se filtra nada antes de agregar.
+  `filter_operator` acepta `>`, `>=`, `<`, `<=`, `==`, `!=`.
+- `output.event` debe ser distinto de `input.event`; el modelo de salida se
+  genera con todos los campos de entrada mas el campo agregado
+  (`processing.aggregate_as`).
+
+El proyecto generado (`crud-<project>/`) incluye `pom.xml`, `Dockerfile`,
+`docker-compose.yml` (con un broker Kafka de un solo nodo), la topologia
+(`@Configuration` con el `KStream` cableado) y un test de topologia con
+`TopologyTestDriver` que cubre agregacion, claves independientes por
+grupo, clave `UNKNOWN`, tombstones y (si hay filtro) el caso filtrado.
+`--force` regenera el directorio igual que en el modo CRUD.
+
 ## Pruebas Cucumber (BDD) y reporte Allure
 
 Cada entidad recibe `src/test/resources/features/{entidad}.feature` (listar,
@@ -447,6 +512,9 @@ crud_generator/
   ports_templates.py      Plantillas de puertos y adaptadores
   types.py                Mapeos de tipos
   writer.py               Escritura en disco
+  stream_schema.py        Carga y validacion del JSON de --stream
+  stream_generator.py     Orquestacion de la generacion del proyecto Kafka Streams
+  stream_templates.py     Plantillas del proyecto Kafka Streams
   schema/entity.schema.json  JSON Schema del formato de entrada
 tests/                    Pruebas de la automatizacion
 examples/                 Ficheros JSON de ejemplo (entidad simple y multi-entidad)

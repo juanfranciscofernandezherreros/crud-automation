@@ -5,6 +5,7 @@ import sys
 from .architectures import ARCHITECTURES, normalize_architecture
 from .generator import generate_project, generate_project_from_json
 from .parsing import DefinitionError, normalize_entity_name
+from .stream_generator import generate_stream_project
 
 
 def choose_architecture():
@@ -50,6 +51,20 @@ def extract_json_path(args):
     return args, json_path
 
 
+def extract_stream_path(args):
+    args = list(args)
+    stream_path = None
+    for option in ("--stream", "-s"):
+        if option in args:
+            index = args.index(option)
+            if index + 1 >= len(args):
+                raise DefinitionError(f"Falta el valor de {option}.")
+            stream_path = args[index + 1]
+            del args[index : index + 2]
+            break
+    return args, stream_path
+
+
 def extract_force(args):
     args = list(args)
     force = False
@@ -65,10 +80,23 @@ def main(args=None):
     try:
         args, architecture = extract_architecture(args)
         args, json_path = extract_json_path(args)
+        args, stream_path = extract_stream_path(args)
         args, force = extract_force(args)
     except DefinitionError as error:
         print(f"Error: {error}", file=sys.stderr)
         return 2
+
+    if stream_path:
+        try:
+            base_dir = generate_stream_project(stream_path, overwrite=force)
+        except DefinitionError as error:
+            print(f"Error: {error}", file=sys.stderr)
+            return 2
+        print(
+            f"Proyecto {base_dir} generado con éxito: topología Kafka Streams, "
+            "test de topología y Dockerización."
+        )
+        return 0
 
     if json_path:
         try:
@@ -90,6 +118,9 @@ def main(args=None):
         print(
             "  o: python generate_crud.py --json <definicion.json> "
             "[--architecture layered|hexagonal|clean] [--force]"
+        )
+        print(
+            "  o: python generate_crud.py --stream <definicion.json> [--force]"
         )
         print(
             'Ejemplo: python generate_crud.py Producto '

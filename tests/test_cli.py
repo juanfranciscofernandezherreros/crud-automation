@@ -63,6 +63,37 @@ class CliTest(unittest.TestCase):
             "Producto", "id:int,nombre:string", "layered", overwrite=True
         )
 
+    @patch(
+        "crud_generator.cli.generate_stream_project",
+        return_value="crud-sales-streams",
+    )
+    def test_generates_stream_project(self, generate_stream_project):
+        stdout = io.StringIO()
+
+        with contextlib.redirect_stdout(stdout):
+            exit_code = main(["--stream", "definition.json"])
+
+        self.assertEqual(0, exit_code)
+        generate_stream_project.assert_called_once_with(
+            "definition.json", overwrite=False
+        )
+        self.assertIn("crud-sales-streams", stdout.getvalue())
+
+    @patch(
+        "crud_generator.cli.generate_stream_project",
+        return_value="crud-sales-streams",
+    )
+    def test_stream_force_flag_is_propagated_as_overwrite(
+        self, generate_stream_project
+    ):
+        with contextlib.redirect_stdout(io.StringIO()):
+            exit_code = main(["--stream", "definition.json", "--force"])
+
+        self.assertEqual(0, exit_code)
+        generate_stream_project.assert_called_once_with(
+            "definition.json", overwrite=True
+        )
+
     def test_existing_directory_without_force_is_rejected(self):
         import os
         import tempfile
