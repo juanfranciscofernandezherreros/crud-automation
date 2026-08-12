@@ -326,7 +326,36 @@ El proyecto generado (`crud-<project>/`) incluye `pom.xml`, `Dockerfile`,
 (`@Configuration` con el `KStream` cableado) y un test de topologia con
 `TopologyTestDriver` que cubre agregacion, claves independientes por
 grupo, clave `UNKNOWN`, tombstones y (si hay filtro) el caso filtrado.
-`--force` regenera el directorio igual que en el modo CRUD.
+`--force` regenera el directorio igual que en el modo CRUD. Los tombstones
+(valor `null`, p.ej. un borrado logico en el topic origen) siempre se
+descartan antes de tocar ningun campo, con o sin filtro configurado.
+
+### Sin agregacion: passthrough de un topic a otro
+
+`processing` es opcional en su totalidad. Sin ella (o sin
+`group_by_field`/`aggregate_field`/`aggregate_as`, que van juntos o
+ninguno), el stream generado no agrega nada: lee el topic de entrada y
+reescribe cada evento, campo a campo y sin cambios, en el topic de salida
+— sin estado, sin KTable, sin join. `filter_field`/`filter_operator`/
+`filter_value` siguen siendo independientes y se pueden combinar igual con
+o sin agregacion.
+
+```json
+{
+  "project": "crypto-relay",
+  "package": "com.example.crypto",
+  "input": {
+    "topic": "crypto-prices-in",
+    "event": "CryptoPrice",
+    "fields": [
+      {"name": "symbol", "type": "string"},
+      {"name": "price_usd", "type": "double"},
+      {"name": "volume", "type": "double"}
+    ]
+  },
+  "output": {"topic": "crypto-prices-out", "event": "CryptoPriceRelayed"}
+}
+```
 
 ## Pruebas Cucumber (BDD) y reporte Allure
 

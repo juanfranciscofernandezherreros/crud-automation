@@ -9,7 +9,14 @@ evento enriquecido con el total acumulado — parametrizando topics, nombres de
 evento, campos y tipos. Operaciones no cubiertas por este patrón (windowing,
 branch, joins entre streams, múltiples agregaciones) quedan fuera.
 
-Formato::
+"processing" es opcional en su totalidad. Sin ella (o sin
+"group_by_field"/"aggregate_field"/"aggregate_as", que van juntos o ninguno),
+el stream generado es un simple paso ("passthrough"): lee el topic de
+entrada y reescribe cada evento, sin cambios, en el topic de salida — sin
+estado, sin KTable, sin join. "filter_field"/"filter_operator"/"filter_value"
+siguen siendo independientes y aplican igual con o sin agregación.
+
+Formato (con agregación)::
 
     {
         "project": "sales-streams",
@@ -37,10 +44,19 @@ Formato::
         }
     }
 
+Formato (passthrough, sin "processing")::
+
+    {
+        "project": "crypto-relay",
+        "package": "com.example.crypto",
+        "input": {"topic": "crypto-prices-in", "event": "CryptoPrice", "fields": [...]},
+        "output": {"topic": "crypto-prices-out", "event": "CryptoPriceRelayed"}
+    }
+
 "filter_field"/"filter_operator"/"filter_value" son opcionales (juntos, o
-ninguno): sin ellos no se filtra nada antes de agregar. "aggregate_field" debe
-ser "double" en esta primera versión (es el tipo que usa el acumulador y el
-Serde del store, igual que en el proyecto de referencia).
+ninguno): sin ellos no se filtra nada. "aggregate_field" debe ser "double" en
+esta primera versión (es el tipo que usa el acumulador y el Serde del store,
+igual que en el proyecto de referencia).
 """
 
 import json
@@ -171,7 +187,9 @@ def load_stream_definition(path):
     if output_event == input_event:
         raise DefinitionError("'output.event' debe ser distinto de 'input.event'.")
 
-    processing = _require_dict(data.get("processing"), "processing")
+    processing = data.get("processing", {})
+    if not isinstance(processing, dict):
+        raise DefinitionError("'processing' debe ser un objeto JSON.")
     unknown_processing = set(processing) - {
         "group_by_field", "aggregate_field", "aggregate_as",
         "filter_field", "filter_operator", "filter_value",
@@ -181,43 +199,55 @@ def load_stream_definition(path):
             f"Claves desconocidas en 'processing': {', '.join(sorted(unknown_processing))}."
         )
 
-    group_by_field = _require_str(processing.get("group_by_field"), "processing.group_by_field")
-    group_by_field_spec = next((f for f in input_fields if f["name"] == group_by_field), None)
-    if group_by_field_spec is None:
+    aggregation_keys = {"group_by_field", "aggregate_field", "aggregate_as"}
+    present_aggregation_keys = aggregation_keys & set(processing)
+    if present_aggregation_keys and present_aggregation_keys != aggregation_keys:
+        missing = aggregation_keys - present_aggregation_keys
         raise DefinitionError(
-            f"'processing.group_by_field' ('{group_by_field}') no está en 'input.fields'."
-        )
-    if group_by_field_spec["type"] != "string":
-        # La topologia reagrupa el stream con KStream<String, ...>: la clave
-        # siempre es String (con fallback "UNKNOWN" si el campo es null), asi
-        # que el campo de agrupacion debe ser 'string' o el selectKey no
-        # compila (mezclar un tipo numerico con el literal "UNKNOWN" en el
-        # operador ternario es un error de tipos en Java).
-        raise DefinitionError(
-            "'processing.group_by_field' debe ser de tipo 'string' (se usa como clave "
-            "de Kafka tras reagrupar, y necesita un valor de repuesto 'UNKNOWN' si es null)."
+            "'group_by_field'/'aggregate_field'/'aggregate_as' van juntos o ninguno "
+            "(sin ellos el stream es un simple paso de un topic a otro, sin agregación); "
+            f"falta: {', '.join(sorted(missing))}."
         )
 
-    aggregate_field = _require_str(processing.get("aggregate_field"), "processing.aggregate_field")
-    aggregate_field_spec = next((f for f in input_fields if f["name"] == aggregate_field), None)
-    if aggregate_field_spec is None:
-        raise DefinitionError(
-            f"'processing.aggregate_field' ('{aggregate_field}') no está en 'input.fields'."
-        )
-    if aggregate_field_spec["type"] != "double":
-        raise DefinitionError(
-            "'processing.aggregate_field' debe ser de tipo 'double' (es el tipo del "
-            "acumulador y del store; ver limitaciones en la documentación)."
-        )
+    group_by_field = aggregate_field = aggregate_as = None
+    if present_aggregation_keys:
+        group_by_field = _require_str(processing.get("group_by_field"), "processing.group_by_field")
+        group_by_field_spec = next((f for f in input_fields if f["name"] == group_by_field), None)
+        if group_by_field_spec is None:
+            raise DefinitionError(
+                f"'processing.group_by_field' ('{group_by_field}') no está en 'input.fields'."
+            )
+        if group_by_field_spec["type"] != "string":
+            # La topologia reagrupa el stream con KStream<String, ...>: la clave
+            # siempre es String (con fallback "UNKNOWN" si el campo es null), asi
+            # que el campo de agrupacion debe ser 'string' o el selectKey no
+            # compila (mezclar un tipo numerico con el literal "UNKNOWN" en el
+            # operador ternario es un error de tipos en Java).
+            raise DefinitionError(
+                "'processing.group_by_field' debe ser de tipo 'string' (se usa como clave "
+                "de Kafka tras reagrupar, y necesita un valor de repuesto 'UNKNOWN' si es null)."
+            )
 
-    aggregate_as = _require_str(processing.get("aggregate_as"), "processing.aggregate_as")
-    if not ATTRIBUTE_NAME_PATTERN.fullmatch(aggregate_as):
-        raise DefinitionError("'processing.aggregate_as' debe usar lower_snake_case.")
-    if aggregate_as in input_field_names:
-        raise DefinitionError(
-            f"'processing.aggregate_as' ('{aggregate_as}') ya existe en 'input.fields'; "
-            "usa un nombre distinto para el campo agregado."
-        )
+        aggregate_field = _require_str(processing.get("aggregate_field"), "processing.aggregate_field")
+        aggregate_field_spec = next((f for f in input_fields if f["name"] == aggregate_field), None)
+        if aggregate_field_spec is None:
+            raise DefinitionError(
+                f"'processing.aggregate_field' ('{aggregate_field}') no está en 'input.fields'."
+            )
+        if aggregate_field_spec["type"] != "double":
+            raise DefinitionError(
+                "'processing.aggregate_field' debe ser de tipo 'double' (es el tipo del "
+                "acumulador y del store; ver limitaciones en la documentación)."
+            )
+
+        aggregate_as = _require_str(processing.get("aggregate_as"), "processing.aggregate_as")
+        if not ATTRIBUTE_NAME_PATTERN.fullmatch(aggregate_as):
+            raise DefinitionError("'processing.aggregate_as' debe usar lower_snake_case.")
+        if aggregate_as in input_field_names:
+            raise DefinitionError(
+                f"'processing.aggregate_as' ('{aggregate_as}') ya existe en 'input.fields'; "
+                "usa un nombre distinto para el campo agregado."
+            )
 
     filter_keys = {"filter_field", "filter_operator", "filter_value"}
     present_filter_keys = filter_keys & set(processing)

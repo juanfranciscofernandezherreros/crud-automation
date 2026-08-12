@@ -62,15 +62,19 @@ def generate_stream_project(json_path, overwrite=False):
             with_json_property=True,
         ),
     )
-    output_fields = definition["input_fields"] + [
-        {
-            "name": definition["aggregate_as"],
-            "camel_name": definition["aggregate_as"].split("_")[0]
-            + "".join(p.capitalize() for p in definition["aggregate_as"].split("_")[1:]),
-            "type": "double",
-            "java_type": "Double",
-        }
-    ]
+    is_passthrough = definition["group_by_field"] is None
+    if is_passthrough:
+        output_fields = definition["input_fields"]
+    else:
+        output_fields = definition["input_fields"] + [
+            {
+                "name": definition["aggregate_as"],
+                "camel_name": definition["aggregate_as"].split("_")[0]
+                + "".join(p.capitalize() for p in definition["aggregate_as"].split("_")[1:]),
+                "type": "double",
+                "java_type": "Double",
+            }
+        ]
     write_file(
         f"{java_base}/model/{definition['output_event']}.java",
         stream_templates.get_model(

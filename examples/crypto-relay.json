@@ -1,0 +1,14 @@
+{
+  "project": "crypto-relay",
+  "package": "com.example.crypto",
+  "input": {
+    "topic": "crypto-prices-in",
+    "event": "CryptoPrice",
+    "fields": [
+      {"name": "symbol", "type": "string"},
+      {"name": "price_usd", "type": "double"},
+      {"name": "volume", "type": "double"}
+    ]
+  },
+  "output": {"topic": "crypto-prices-out", "event": "CryptoPriceRelayed"}
+}

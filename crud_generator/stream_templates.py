@@ -2,6 +2,8 @@
 patrón de referencia: Spring Boot + Spring Kafka + Kafka Streams, filtro
 opcional + agregación con estado (KTable/RocksDB) + join de enriquecimiento."""
 
+from .parsing import to_camel_case
+
 
 def _pascal_case(camel_name):
     return camel_name[0].upper() + camel_name[1:]
@@ -162,8 +164,80 @@ public class {class_name} {{
 """
 
 
+def _filter_line(definition, input_fields):
+    """Siempre descarta tombstones (valor null: p.ej. un borrado logico en el
+    topic origen) antes de que el resto de la topologia toque ningun getter —
+    sin este filtro, un tombstone revienta el stream-thread con
+    NullPointerException en selectKey/mapValues. Se combina con la condicion
+    de 'processing.filter_*' cuando el usuario configura una."""
+    condition = "v != null"
+    if definition["filter_field"]:
+        filter_camel = next(
+            f["camel_name"] for f in input_fields if f["name"] == definition["filter_field"]
+        )
+        filter_getter = f"get{_pascal_case(filter_camel)}"
+        condition += (
+            f" && v.{filter_getter}() != null "
+            f'&& v.{filter_getter}() {definition["filter_operator"]} {definition["filter_value"]}'
+        )
+    return f"\n                .filter((k, v) -> {condition})"
+
+
+def _get_passthrough_topology(definition):
+    """Sin 'processing.group_by_field'/'aggregate_field'/'aggregate_as': lee el
+    topic de entrada y reescribe cada evento tal cual (mapeando campo a campo,
+    sin cambios) en el topic de salida. Sin estado, sin KTable, sin join."""
+    package = definition["package"]
+    project_class_prefix = definition["project_class_prefix"]
+    input_event = definition["input_event"]
+    output_event = definition["output_event"]
+    input_topic = definition["input_topic"]
+    output_topic = definition["output_topic"]
+    input_fields = definition["input_fields"]
+
+    constructor_args = ", ".join(
+        f"v.get{_pascal_case(f['camel_name'])}()" for f in input_fields
+    )
+    filter_line = _filter_line(definition, input_fields)
+    bean_name = f"{project_class_prefix[0].lower()}{project_class_prefix[1:]}Stream"
+
+    return f"""package {package}.topology;
+
+import {package}.model.{input_event};
+import {package}.model.{output_event};
+import org.apache.kafka.common.serialization.Serdes;
+import org.apache.kafka.streams.StreamsBuilder;
+import org.apache.kafka.streams.kstream.Consumed;
+import org.apache.kafka.streams.kstream.KStream;
+import org.apache.kafka.streams.kstream.Produced;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.kafka.support.serializer.JsonSerde;
+
+@Configuration
+public class {project_class_prefix}Topology {{
+
+    @Bean
+    public KStream<String, {output_event}> {bean_name}(StreamsBuilder builder) {{
+        JsonSerde<{input_event}> inputSerde = new JsonSerde<>({input_event}.class);
+        JsonSerde<{output_event}> outputSerde = new JsonSerde<>({output_event}.class);
+
+        KStream<String, {output_event}> relayed = builder
+                .stream("{input_topic}", Consumed.with(Serdes.String(), inputSerde)){filter_line}
+                .mapValues(v -> new {output_event}({constructor_args}));
+
+        relayed.to("{output_topic}", Produced.with(Serdes.String(), outputSerde));
+        return relayed;
+    }}
+}}
+"""
+
+
 def get_topology(definition, state_store_name):
     """definition: el dict devuelto por stream_schema.load_stream_definition."""
+    if definition["group_by_field"] is None:
+        return _get_passthrough_topology(definition)
+
     package = definition["package"]
     project_class_prefix = definition["project_class_prefix"]
     input_event = definition["input_event"]
@@ -180,16 +254,7 @@ def get_topology(definition, state_store_name):
     group_by_getter = f"get{_pascal_case(group_by_camel)}"
     aggregate_getter = f"get{_pascal_case(aggregate_camel)}"
 
-    filter_line = ""
-    if definition["filter_field"]:
-        filter_camel = next(
-            f["camel_name"] for f in input_fields if f["name"] == definition["filter_field"]
-        )
-        filter_getter = f"get{_pascal_case(filter_camel)}"
-        filter_line = (
-            f"\n                .filter((k, v) -> v != null && v.{filter_getter}() != null "
-            f'&& v.{filter_getter}() {definition["filter_operator"]} {definition["filter_value"]})'
-        )
+    filter_line = _filter_line(definition, input_fields)
 
     constructor_args = ", ".join(
         f"order.get{_pascal_case(f['camel_name'])}()" for f in input_fields
@@ -313,7 +378,152 @@ GITIGNORE = """target/
 """
 
 
+def _sample_value(field, value):
+    if value is None:
+        return "null"
+    if field["type"] == "string":
+        return f'"{value}"'
+    if field["type"] == "double":
+        return f"{float(value)}"
+    if field["type"] in {"int", "long"}:
+        return str(int(value))
+    if field["type"] == "boolean":
+        return "true" if value else "false"
+    return str(value)
+
+
+def _build_event_args(input_fields, overrides, sample_field_defaults=None):
+    values = dict(sample_field_defaults or {})
+    values.update(overrides)
+    args = []
+    for field in input_fields:
+        if field["name"] in values:
+            args.append(_sample_value(field, values[field["name"]]))
+        elif field["type"] == "string":
+            args.append(f'"{field["name"]}-1"')
+        elif field["type"] == "double":
+            args.append("0.0")
+        elif field["type"] in {"int", "long"}:
+            args.append("0")
+        else:
+            args.append("false")
+    return ", ".join(args)
+
+
+def _filter_test_case(definition, input_event, build_event_args):
+    if not definition["filter_field"]:
+        return ""
+    below_threshold = (
+        definition["filter_value"] - 1
+        if definition["filter_operator"] in (">", ">=")
+        else definition["filter_value"] + 1
+    )
+    filter_overrides = {definition["filter_field"]: below_threshold}
+    return f"""
+    @Test
+    @DisplayName("Filtra los eventos que no cumplen la condicion configurada")
+    void filterTest() {{
+        inputTopic.pipeInput("K1", new {input_event}({build_event_args(filter_overrides)}));
+
+        assertTrue(outputTopic.isEmpty());
+    }}
+"""
+
+
+def _get_passthrough_topology_test(definition):
+    package = definition["package"]
+    project_class_prefix = definition["project_class_prefix"]
+    input_event = definition["input_event"]
+    output_event = definition["output_event"]
+    input_topic = definition["input_topic"]
+    output_topic = definition["output_topic"]
+    input_fields = definition["input_fields"]
+    stream_bean = f"{project_class_prefix[0].lower()}{project_class_prefix[1:]}Stream"
+
+    def build_event_args(overrides):
+        return _build_event_args(input_fields, overrides)
+
+    filter_test = _filter_test_case(definition, input_event, build_event_args)
+    event_args = build_event_args({})
+
+    return f"""package {package}.topology;
+
+import {package}.model.{input_event};
+import {package}.model.{output_event};
+import org.apache.kafka.common.serialization.Serdes;
+import org.apache.kafka.streams.StreamsBuilder;
+import org.apache.kafka.streams.StreamsConfig;
+import org.apache.kafka.streams.TestInputTopic;
+import org.apache.kafka.streams.TestOutputTopic;
+import org.apache.kafka.streams.TopologyTestDriver;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.kafka.support.serializer.JsonSerde;
+
+import java.util.Properties;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+class {project_class_prefix}TopologyTest {{
+
+    private TopologyTestDriver testDriver;
+    private TestInputTopic<String, {input_event}> inputTopic;
+    private TestOutputTopic<String, {output_event}> outputTopic;
+
+    @BeforeEach
+    void setup() {{
+        StreamsBuilder builder = new StreamsBuilder();
+        new {project_class_prefix}Topology().{stream_bean}(builder);
+
+        Properties props = new Properties();
+        props.put(StreamsConfig.APPLICATION_ID_CONFIG, "test-{definition['project']}");
+        props.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG, "dummy:1234");
+        props.put(StreamsConfig.DEFAULT_KEY_SERDE_CLASS_CONFIG, Serdes.String().getClass());
+
+        testDriver = new TopologyTestDriver(builder.build(), props);
+
+        JsonSerde<{input_event}> inputSerde = new JsonSerde<>({input_event}.class);
+        JsonSerde<{output_event}> outputSerde = new JsonSerde<>({output_event}.class);
+
+        inputTopic = testDriver.createInputTopic(
+                "{input_topic}", Serdes.String().serializer(), inputSerde.serializer());
+        outputTopic = testDriver.createOutputTopic(
+                "{output_topic}", Serdes.String().deserializer(), outputSerde.deserializer());
+    }}
+
+    @AfterEach
+    void tearDown() {{
+        if (testDriver != null) {{
+            testDriver.close();
+        }}
+    }}
+{filter_test}
+    @Test
+    @DisplayName("Reenvia el evento sin cambios al topic de salida")
+    void relaysEventUnchanged() {{
+        inputTopic.pipeInput("K1", new {input_event}({event_args}));
+
+        {output_event} expected = new {output_event}({event_args});
+        assertEquals(expected, outputTopic.readValue());
+    }}
+
+    @Test
+    @DisplayName("Ignora los tombstones (valor nulo)")
+    void tombstoneTest() {{
+        inputTopic.pipeInput("K1", null);
+
+        assertTrue(outputTopic.isEmpty());
+    }}
+}}
+"""
+
+
 def get_topology_test(definition, state_store_name):
+    if definition["group_by_field"] is None:
+        return _get_passthrough_topology_test(definition)
+
     package = definition["package"]
     project_class_prefix = definition["project_class_prefix"]
     input_event = definition["input_event"]
@@ -325,19 +535,7 @@ def get_topology_test(definition, state_store_name):
         f["camel_name"] for f in input_fields if f["name"] == definition["group_by_field"]
     )
     group_by_getter = f"get{_pascal_case(group_by_camel)}"
-
-    def sample_value(field, value):
-        if value is None:
-            return "null"
-        if field["type"] == "string":
-            return f'"{value}"'
-        if field["type"] == "double":
-            return f"{float(value)}"
-        if field["type"] in {"int", "long"}:
-            return str(int(value))
-        if field["type"] == "boolean":
-            return "true" if value else "false"
-        return str(value)
+    aggregate_as_getter = f"get{_pascal_case(to_camel_case(definition['aggregate_as']))}"
 
     sample_field_defaults = {
         definition["group_by_field"]: "C1",
@@ -345,41 +543,11 @@ def get_topology_test(definition, state_store_name):
     }
 
     def build_event_args(overrides):
-        values = dict(sample_field_defaults)
-        values.update(overrides)
-        args = []
-        for field in input_fields:
-            if field["name"] in values:
-                args.append(sample_value(field, values[field["name"]]))
-            elif field["type"] == "string":
-                args.append(f'"{field["name"]}-1"')
-            elif field["type"] == "double":
-                args.append("0.0")
-            elif field["type"] in {"int", "long"}:
-                args.append("0")
-            else:
-                args.append("false")
-        return ", ".join(args)
+        return _build_event_args(input_fields, overrides, sample_field_defaults)
 
     stream_bean = f"{project_class_prefix[0].lower()}{project_class_prefix[1:]}Stream"
 
-    filter_test = ""
-    if definition["filter_field"]:
-        below_threshold = (
-            definition["filter_value"] - 1
-            if definition["filter_operator"] in (">", ">=")
-            else definition["filter_value"] + 1
-        )
-        filter_overrides = {definition["filter_field"]: below_threshold}
-        filter_test = f"""
-    @Test
-    @DisplayName("Filtra los eventos que no cumplen la condicion configurada")
-    void filterTest() {{
-        inputTopic.pipeInput("K1", new {input_event}({build_event_args(filter_overrides)}));
-
-        assertTrue(outputTopic.isEmpty());
-    }}
-"""
+    filter_test = _filter_test_case(definition, input_event, build_event_args)
 
     return f"""package {package}.topology;
 
@@ -440,11 +608,11 @@ class {project_class_prefix}TopologyTest {{
     void aggregationTest() {{
         inputTopic.pipeInput("K1", new {input_event}({build_event_args({})}));
         {output_event} first = outputTopic.readValue();
-        assertEquals(50.0, first.getTotalAmount());
+        assertEquals(50.0, first.{aggregate_as_getter}());
 
         inputTopic.pipeInput("K2", new {input_event}({build_event_args({definition['aggregate_field']: 30.0})}));
         {output_event} second = outputTopic.readValue();
-        assertEquals(80.0, second.getTotalAmount());
+        assertEquals(80.0, second.{aggregate_as_getter}());
 
         assertEquals(80.0, stateStore.get("C1"));
     }}
@@ -461,7 +629,7 @@ class {project_class_prefix}TopologyTest {{
         {output_event} last = outputTopic.readValue();
 
         assertEquals("C1", last.{group_by_getter}());
-        assertEquals(75.0, last.getTotalAmount());
+        assertEquals(75.0, last.{aggregate_as_getter}());
     }}
 
     @Test

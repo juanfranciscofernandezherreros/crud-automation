@@ -168,6 +168,36 @@ class LoadStreamDefinitionTest(unittest.TestCase):
         with self.assertRaises(DefinitionError):
             load_stream_definition(str(Path(tempfile.gettempdir()) / "does-not-exist.json"))
 
+    def test_passthrough_mode_when_processing_is_absent(self):
+        path = _write_definition(remove=[["processing"]])
+        definition = load_stream_definition(path)
+
+        self.assertIsNone(definition["group_by_field"])
+        self.assertIsNone(definition["aggregate_field"])
+        self.assertIsNone(definition["aggregate_as"])
+
+    def test_passthrough_mode_when_processing_has_no_aggregation_keys(self):
+        path = _write_definition(
+            remove=[
+                ["processing", "group_by_field"],
+                ["processing", "aggregate_field"],
+                ["processing", "aggregate_as"],
+            ]
+        )
+        definition = load_stream_definition(path)
+
+        self.assertIsNone(definition["group_by_field"])
+        # El filtro sigue siendo independiente de la agregacion.
+        self.assertEqual("amount", definition["filter_field"])
+
+    def test_rejects_partial_aggregation_keys(self):
+        path = _write_definition(remove=[["processing", "aggregate_as"]])
+
+        with self.assertRaises(DefinitionError) as ctx:
+            load_stream_definition(path)
+
+        self.assertIn("group_by_field", str(ctx.exception))
+
     def test_rejects_invalid_json(self):
         tmp = tempfile.NamedTemporaryFile(
             mode="w", suffix=".json", delete=False, encoding="utf-8"
