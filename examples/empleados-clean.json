@@ -1,0 +1,15 @@
+{
+  "entity": "Empleado",
+  "architecture": "clean",
+  "package": "com.miempresa.rrhh",
+  "endpoints": ["list", "get", "create", "update", "patch", "delete"],
+  "fields": [
+    {"name": "id", "type": "int"},
+    {"name": "nif", "type": "string", "not_blank": true, "max": 12, "unique": true, "index": true},
+    {"name": "nombre", "type": "string", "not_blank": true, "required": true, "max": 120},
+    {"name": "puesto", "type": "string", "max": 80},
+    {"name": "salario_anual", "type": "decimal", "precision": 12, "scale": 2, "required": true, "positive": true},
+    {"name": "fecha_alta", "type": "date", "required": true},
+    {"name": "activo", "type": "boolean", "required": true, "default": "true"}
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "project": "catalogo",
+  "architecture": "layered",
+  "package": "com.miempresa.catalogo",
+  "entities": [
+    {
+      "entity": "Categoria",
+      "fields": [
+        {"name": "id", "type": "int"},
+        {"name": "nombre", "type": "string", "not_blank": true, "required": true, "max": 100},
+        {"name": "padre", "type": "reference", "references": "Categoria", "index": true}
+      ]
+    }
+  ]
+}

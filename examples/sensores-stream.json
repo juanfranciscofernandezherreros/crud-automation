@@ -1,0 +1,18 @@
+{
+  "project": "sensores-stream",
+  "package": "com.miempresa.iot",
+  "input": {
+    "topic": "lecturas-sensores",
+    "event": "LecturaSensor",
+    "fields": [
+      {"name": "sensor_id", "type": "string"},
+      {"name": "lectura", "type": "double"}
+    ]
+  },
+  "output": {"topic": "totales-sensores", "event": "LecturaSensorConTotal"},
+  "processing": {
+    "group_by_field": "sensor_id",
+    "aggregate_field": "lectura",
+    "aggregate_as": "total_lectura"
+  }
+}

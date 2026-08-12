@@ -93,6 +93,14 @@ Reglas:
 - Claves desconocidas en un campo, o a nivel raiz del JSON, son un error
   (mismo criterio "falla antes de escribir" que el DSL de texto).
 
+`examples/tipos-y-validaciones.json` reune en una sola entidad los nueve
+tipos de campo (`int`, `string`, `text`, `float`, `double`, `decimal`,
+`boolean`, `date`, `datetime`) y las reglas mas comunes a la vez —
+`composite_unique` con dos campos, `default`, `precision`/`scale` — el
+mismo combo que motivo `informes/hallazgos-generador.html`.
+`examples/empleados-clean.json` es el mismo formato de una sola entidad
+pero en arquitectura `clean`.
+
 El `docs/index.html` generado muestra el comando `--json` reproducible.
 
 `crud_generator/schema/entity.schema.json` (JSON Schema Draft 7) documenta
@@ -151,11 +159,11 @@ Un campo `type: "reference"` con `references: "<OtraEntidad>"` genera, para
   cubre create y update por igual).
 
 `references` puede apuntar a otra entidad de la misma lista o a si misma
-(relaciones reflexivas, p.ej. un arbol de categorias vía `padre`). Las
-dependencias circulares entre dos entidades distintas (A referencia a B y B
-a A) no estan soportadas y el generador lo rechaza explicitamente. El
-directorio del proyecto usa `project` si se indica, o el nombre de la
-primera entidad listada.
+(relaciones reflexivas, p.ej. un arbol de categorias vía `padre` — ver
+`examples/categorias-arbol.json`). Las dependencias circulares entre dos
+entidades distintas (A referencia a B y B a A) no estan soportadas y el
+generador lo rechaza explicitamente. El directorio del proyecto usa
+`project` si se indica, o el nombre de la primera entidad listada.
 
 El lado "uno" de la relación (`Cliente`, al que apunta `Pedido.cliente`)
 recibe automáticamente:
@@ -274,7 +282,7 @@ Ademas de proyectos CRUD, el generador puede crear un microservicio Spring
 Boot + Spring Kafka + Kafka Streams a partir de una definicion JSON:
 
 ```powershell
-python .\generate_crud.py --stream .\sales-streams.json
+python .\generate_crud.py --stream .\examples\sales-streams.json
 ```
 
 No es un DSL general para topologias arbitrarias: generaliza un patron
@@ -326,6 +334,12 @@ Reglas:
   genera con todos los campos de entrada mas el campo agregado
   (`processing.aggregate_as`).
 
+`examples/sales-streams.json` es el ejemplo de arriba (agregación + filtro).
+`examples/sensores-stream.json` es el mismo patrón de agregación pero sin
+`filter_field`/`filter_operator`/`filter_value` — el caso que obligó a que
+la topología descarte tombstones siempre, no solo cuando hay filtro
+configurado (ver `informes/historial-commits.html`).
+
 El proyecto generado (`crud-<project>/`) incluye `pom.xml`, `Dockerfile`,
 `docker-compose.yml` (con un broker Kafka de un solo nodo), la topologia
 (`@Configuration` con el `KStream` cableado) y un test de topologia con
@@ -361,6 +375,10 @@ o sin agregacion.
   "output": {"topic": "crypto-prices-out", "event": "CryptoPriceRelayed"}
 }
 ```
+
+Este ejemplo es `examples/crypto-relay.json`, probado con Docker real
+enviando 50 eventos de criptomonedas a `crypto-prices-in` (ver
+`informes/historial-commits.html`).
 
 ## Pruebas Cucumber (BDD) y reporte Allure
 
@@ -557,7 +575,16 @@ crud_generator/
   stream_templates.py     Plantillas del proyecto Kafka Streams
   schema/entity.schema.json  JSON Schema del formato de entrada
 tests/                    Pruebas de la automatizacion
-examples/                 Ficheros JSON de ejemplo (entidad simple y multi-entidad)
+examples/                 Ficheros JSON de ejemplo, uno por funcionalidad:
+  fondoinversion.json       entidad simple, hexagonal, endpoints parciales
+  transferencia.json        entidad simple, hexagonal, text/boolean/decimal
+  tipos-y-validaciones.json entidad simple, layered, los 9 tipos + composite_unique
+  empleados-clean.json      entidad simple, arquitectura clean
+  ventas.json                multi-entidad, reference + enum, layered
+  categorias-arbol.json      multi-entidad, reference reflexiva (arbol)
+  sales-streams.json         --stream, agregacion + filtro
+  sensores-stream.json       --stream, agregacion sin filtro
+  crypto-relay.json          --stream, passthrough (sin agregacion)
 ```
 
 Los proyectos generados pueden borrarse y regenerarse en cualquier momento:

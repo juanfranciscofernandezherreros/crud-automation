@@ -1,0 +1,21 @@
+{
+  "entity": "Articulo",
+  "architecture": "layered",
+  "package": "com.miempresa.catalogo",
+  "endpoints": ["list", "get", "create", "update", "patch", "delete"],
+  "fields": [
+    {"name": "id", "type": "int"},
+    {"name": "sku", "type": "string", "not_blank": true, "max": 40, "composite_unique": "sku_almacen", "index": true},
+    {"name": "almacen", "type": "string", "not_blank": true, "max": 20, "composite_unique": "sku_almacen"},
+    {"name": "nombre", "type": "string", "not_blank": true, "required": true, "max": 150},
+    {"name": "descripcion", "type": "text"},
+    {"name": "precio", "type": "decimal", "precision": 12, "scale": 2, "required": true, "positive": true},
+    {"name": "coste", "type": "decimal", "precision": 12, "scale": 4, "min": 0, "default": "0"},
+    {"name": "stock", "type": "int", "min": 0, "default": "0"},
+    {"name": "peso_kg", "type": "float", "positive": true},
+    {"name": "volumen_m3", "type": "double", "min": 0},
+    {"name": "activo", "type": "boolean", "required": true, "default": "true"},
+    {"name": "fecha_alta", "type": "date", "required": true},
+    {"name": "ultima_actualizacion", "type": "datetime", "default": "2026-01-01T00:00:00"}
+  ]
+}
