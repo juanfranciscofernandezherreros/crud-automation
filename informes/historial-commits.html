@@ -213,6 +213,13 @@
     <div class="stat">5 ficheros · <b>+103 / -7</b> líneas</div>
   </div>
 
+  <div class="commit">
+    <div class="meta"><span class="hash">4c33713</span><span class="date">2026-08-15</span><span class="tag feat">feature</span></div>
+    <h2>feat: integra generate_service.py en el CLI como --batch</h2>
+    <p>El script <code>crud_generator/generate_service.py</code> (recrea de cero el microservicio Spring Batch <code>rft-observability-item-batch</code>: build Maven, job T-32a, Docker/Compose, CI, README) vivía como fichero suelto sin engancharse al resto del generador. Se extrae su lógica de escritura a <code>generate_batch_project(target=None, overwrite=False)</code>, que lanza <code>DefinitionError</code> igual que el resto del generador en vez de <code>sys.exit</code>, y se cablea en <code>cli.py</code> como un modo más (<code>--batch</code>/<code>-b</code>, con directorio destino opcional y el mismo <code>--force</code> que <code>--json</code>/<code>--stream</code>). El script sigue siendo ejecutable suelto vía <code>python -m crud_generator.generate_service</code>. Verificado generando con destino por defecto, destino explícito, el rechazo de directorio no vacío sin <code>--force</code> y la regeneración con <code>--force</code>; suite completa (169 tests + 25 subtests, incluida la aceptación con <code>mvn verify</code>) en verde.</p>
+    <div class="stat">4 ficheros · <b>+1071</b> líneas</div>
+  </div>
+
   <div class="callout">
     Los commits <code>e1fddaf</code> a <code>fa12969</code> son los que motivaron el informe de hallazgos:
     surgieron al usar el generador contra un esquema de producción real en vez de los ejemplos de 3-10 campos
