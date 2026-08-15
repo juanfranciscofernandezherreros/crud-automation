@@ -94,6 +94,31 @@ class CliTest(unittest.TestCase):
             "definition.json", overwrite=True
         )
 
+    @patch(
+        "crud_generator.cli.generate_batch_project",
+        return_value="rft-observability-item-batch",
+    )
+    def test_generates_batch_project(self, generate_batch_project):
+        stdout = io.StringIO()
+
+        with contextlib.redirect_stdout(stdout):
+            exit_code = main(["--batch"])
+
+        self.assertEqual(0, exit_code)
+        generate_batch_project.assert_called_once_with(None, overwrite=False)
+        self.assertIn("rft-observability-item-batch", stdout.getvalue())
+
+    @patch(
+        "crud_generator.cli.generate_batch_project",
+        return_value="mi-batch",
+    )
+    def test_batch_accepts_target_dir_and_force(self, generate_batch_project):
+        with contextlib.redirect_stdout(io.StringIO()):
+            exit_code = main(["--batch", "mi-batch", "--force"])
+
+        self.assertEqual(0, exit_code)
+        generate_batch_project.assert_called_once_with("mi-batch", overwrite=True)
+
     def test_existing_directory_without_force_is_rejected(self):
         import os
         import tempfile

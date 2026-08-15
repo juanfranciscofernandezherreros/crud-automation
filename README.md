@@ -380,6 +380,26 @@ Este ejemplo es `examples/crypto-relay.json`, probado con Docker real
 enviando 50 eventos de criptomonedas a `crypto-prices-in` (ver
 `informes/historial-commits.html`).
 
+## Generacion del microservicio batch (`--batch`)
+
+Ademas de CRUD y Kafka Streams, el generador puede recrear de una vez el
+microservicio Spring Batch `rft-observability-item-batch` (job T-32a: lee
+Impala/Kudu vía JdbcTemplate, mapea a la entidad y escribe un CSV), tal y
+como existe hoy en produccion:
+
+```powershell
+python .\generate_crud.py --batch
+python .\generate_crud.py --batch .\mi-directorio --force
+```
+
+A diferencia de `--json`/`--stream`, `--batch` no toma una definicion: no es
+un generador parametrico, sino una recreacion fiel de un proyecto concreto
+ya existente (build Maven, job Spring Batch, Docker/Compose, CI, README) —
+util para restaurarlo desde cero o clonarlo como base de otro job batch.
+El directorio destino es opcional (por defecto `rft-observability-item-batch`,
+relativo al directorio actual); `--force` sobrescribe un directorio ya
+existente, igual que en los demas modos.
+
 ## Pruebas Cucumber (BDD) y reporte Allure
 
 Cada entidad recibe `src/test/resources/features/{entidad}.feature` (listar,
@@ -573,6 +593,7 @@ crud_generator/
   stream_schema.py        Carga y validacion del JSON de --stream
   stream_generator.py     Orquestacion de la generacion del proyecto Kafka Streams
   stream_templates.py     Plantillas del proyecto Kafka Streams
+  generate_service.py     Recreacion fiel del microservicio batch (--batch)
   schema/entity.schema.json  JSON Schema del formato de entrada
 tests/                    Pruebas de la automatizacion
 examples/                 Ficheros JSON de ejemplo, uno por funcionalidad:

@@ -3,6 +3,7 @@
 import sys
 
 from .architectures import ARCHITECTURES, normalize_architecture
+from .generate_service import generate_batch_project
 from .generator import generate_project, generate_project_from_json
 from .parsing import DefinitionError, normalize_entity_name
 from .stream_generator import generate_stream_project
@@ -65,6 +66,23 @@ def extract_stream_path(args):
     return args, stream_path
 
 
+def extract_batch(args):
+    args = list(args)
+    batch = False
+    target = None
+    for option in ("--batch", "-b"):
+        if option in args:
+            index = args.index(option)
+            batch = True
+            if index + 1 < len(args) and not args[index + 1].startswith("-"):
+                target = args[index + 1]
+                del args[index : index + 2]
+            else:
+                del args[index]
+            break
+    return args, batch, target
+
+
 def extract_force(args):
     args = list(args)
     force = False
@@ -81,10 +99,23 @@ def main(args=None):
         args, architecture = extract_architecture(args)
         args, json_path = extract_json_path(args)
         args, stream_path = extract_stream_path(args)
+        args, batch, batch_target = extract_batch(args)
         args, force = extract_force(args)
     except DefinitionError as error:
         print(f"Error: {error}", file=sys.stderr)
         return 2
+
+    if batch:
+        try:
+            base_dir = generate_batch_project(batch_target, overwrite=force)
+        except DefinitionError as error:
+            print(f"Error: {error}", file=sys.stderr)
+            return 2
+        print(
+            f"Proyecto {base_dir} generado con éxito: microservicio Spring Batch "
+            "(rft-observability-item-batch) con Docker/Compose y CI."
+        )
+        return 0
 
     if stream_path:
         try:
@@ -121,6 +152,9 @@ def main(args=None):
         )
         print(
             "  o: python generate_crud.py --stream <definicion.json> [--force]"
+        )
+        print(
+            "  o: python generate_crud.py --batch [directorio_destino] [--force]"
         )
         print(
             'Ejemplo: python generate_crud.py Producto '
