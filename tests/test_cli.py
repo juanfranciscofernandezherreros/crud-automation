@@ -167,6 +167,59 @@ class CliTest(unittest.TestCase):
         self.assertEqual(2, exit_code)
         self.assertIn("gh no esta autenticado", stderr.getvalue())
 
+    @patch("crud_generator.cli.verify_project")
+    @patch("crud_generator.cli.generate_project", return_value="crud-producto")
+    def test_verify_flag_runs_verification_and_reports_success(self, generate_project, verify_project):
+        verify_project.return_value = {
+            "ran": True,
+            "success": True,
+            "returncode": 0,
+            "tests": {"run": 5, "failures": 0, "errors": 0, "skipped": 1},
+        }
+        stdout = io.StringIO()
+
+        with contextlib.redirect_stdout(stdout):
+            exit_code = main(["Producto", "id:int,nombre:string", "--verify"])
+
+        self.assertEqual(0, exit_code)
+        verify_project.assert_called_once_with("crud-producto")
+        self.assertIn("Verificación OK", stdout.getvalue())
+
+    @patch("crud_generator.cli.push_to_github")
+    @patch("crud_generator.cli.verify_project")
+    @patch("crud_generator.cli.generate_project", return_value="crud-producto")
+    def test_verify_failure_returns_three_and_skips_github(
+        self, generate_project, verify_project, push_to_github
+    ):
+        verify_project.return_value = {
+            "ran": True,
+            "success": False,
+            "returncode": 1,
+            "log": "[ERROR] boom",
+            "hint": None,
+            "tests": None,
+        }
+        stderr = io.StringIO()
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            with contextlib.redirect_stderr(stderr):
+                exit_code = main(
+                    ["Producto", "id:int,nombre:string", "--verify", "--github"]
+                )
+
+        self.assertEqual(3, exit_code)
+        self.assertIn("Verificación FALLIDA", stderr.getvalue())
+        push_to_github.assert_not_called()
+
+    @patch("crud_generator.cli.generate_project", return_value="crud-producto")
+    def test_without_verify_flag_does_not_run_verification(self, generate_project):
+        with patch("crud_generator.cli.verify_project") as verify_project:
+            with contextlib.redirect_stdout(io.StringIO()):
+                exit_code = main(["Producto", "id:int,nombre:string"])
+
+            self.assertEqual(0, exit_code)
+            verify_project.assert_not_called()
+
     def test_existing_directory_without_force_is_rejected(self):
         import os
         import tempfile

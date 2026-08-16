@@ -466,6 +466,36 @@ job tenga que procesar datos reales. El directorio destino es opcional (por
 defecto `spring-batch-coches`, relativo al directorio actual); `--force`
 sobrescribe un directorio ya existente, igual que en los demas modos.
 
+## Verificación automática (`--verify`)
+
+Cualquier modo de generación acepta `--verify` para ejecutar `mvn verify`
+sobre el proyecto justo después de generarlo, y reportar el resultado:
+
+```powershell
+python .\generate_crud.py Producto "id:int, nombre:string" --verify
+```
+
+```text
+Proyecto crud-producto generado con éxito, incluyendo todas las capas, tests y docs/index.html.
+Verificación OK (mvn verify): 12 tests, 0 fallos, 0 errores, 3 omitidos.
+```
+
+Si Maven no está instalado, se omite con un aviso (no es un error). Si la
+build falla, el código de salida es **3** (distinto del 2 de una definición
+inválida) y se imprime, en `stderr`: una pista si el fallo coincide con un
+patrón ya conocido (por ejemplo, "sin Docker no corren los tests de
+Testcontainers, eso es esperado"), y si no, las últimas líneas del log de
+Maven. `--verify` **no** modifica el código generado — diagnostica, no
+corrige; una build rota es una señal para revisar la definición o la
+plantilla, no algo que el generador deba parchear a ciegas.
+
+Combinado con `--github`, la verificación va primero: si falla, no se
+publica nada.
+
+```powershell
+python .\generate_crud.py --json fondoinversion.json --verify --github
+```
+
 ## Publicar en GitHub (`--github`)
 
 Cualquier modo de generación (DSL de texto, `--json`, `--stream`, `--batch`)

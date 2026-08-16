@@ -8,6 +8,7 @@ from .generator import generate_project, generate_project_from_json
 from .github_repo import push_to_github
 from .parsing import DefinitionError, normalize_entity_name
 from .stream_generator import generate_stream_project
+from .verification import verify_project
 
 
 def choose_architecture():
@@ -120,6 +121,47 @@ def extract_force(args):
     return args, force
 
 
+def extract_verify(args):
+    args = list(args)
+    verify = False
+    while "--verify" in args:
+        args.remove("--verify")
+        verify = True
+    return args, verify
+
+
+def _verify_if_requested(base_dir, verify):
+    """Tras generar un proyecto, ejecuta 'mvn verify' si se pidió --verify.
+    No modifica el proyecto generado -- diagnostica, no corrige (ver
+    verification.py). Un fallo aquí no borra lo ya generado: solo cambia el
+    código de salida a 3, distinto del 2 de una definición inválida."""
+    if not verify:
+        return 0
+    result = verify_project(base_dir)
+    if not result["ran"]:
+        print(result["summary"])
+        return 0
+    if result["success"]:
+        tests = result["tests"]
+        if tests:
+            print(
+                f"Verificación OK (mvn verify): {tests['run']} tests, "
+                f"{tests['failures']} fallos, {tests['errors']} errores, "
+                f"{tests['skipped']} omitidos."
+            )
+        else:
+            print("Verificación OK (mvn verify).")
+        return 0
+    print(f"Verificación FALLIDA (mvn verify), código {result['returncode']}.", file=sys.stderr)
+    if result["hint"]:
+        print(f"Pista: {result['hint']}", file=sys.stderr)
+    tail = "\n".join(result["log"].strip().splitlines()[-25:])
+    if tail:
+        print("Últimas líneas del log:", file=sys.stderr)
+        print(tail, file=sys.stderr)
+    return 3
+
+
 def _publish_if_requested(base_dir, push_github, repo_name, private):
     """Tras generar un proyecto, lo sube a GitHub si se pidió --github.
     Un fallo aquí (gh no instalado, sin auth, nombre de repo ya usado...)
@@ -135,6 +177,15 @@ def _publish_if_requested(base_dir, push_github, repo_name, private):
     return 0
 
 
+def _post_generate(base_dir, verify, push_github, repo_name, private):
+    """Tras generar: primero verifica (si se pidió), luego publica -- nunca
+    se publica un proyecto que acaba de fallar su propia verificación."""
+    exit_code = _verify_if_requested(base_dir, verify)
+    if exit_code != 0:
+        return exit_code
+    return _publish_if_requested(base_dir, push_github, repo_name, private)
+
+
 def main(args=None):
     args = sys.argv[1:] if args is None else args
     try:
@@ -145,6 +196,7 @@ def main(args=None):
         args, push_github, github_repo_name = extract_github(args)
         args, private = extract_private(args)
         args, force = extract_force(args)
+        args, verify = extract_verify(args)
     except DefinitionError as error:
         print(f"Error: {error}", file=sys.stderr)
         return 2
@@ -159,7 +211,7 @@ def main(args=None):
             f"Proyecto {base_dir} generado con éxito: microservicio Spring Batch "
             "que consulta 'coches' y escribe el resultado en CSV, con Docker/Compose y CI."
         )
-        return _publish_if_requested(base_dir, push_github, github_repo_name, private)
+        return _post_generate(base_dir, verify, push_github, github_repo_name, private)
 
     if stream_path:
         try:
@@ -171,7 +223,7 @@ def main(args=None):
             f"Proyecto {base_dir} generado con éxito: topología Kafka Streams, "
             "test de topología y Dockerización."
         )
-        return _publish_if_requested(base_dir, push_github, github_repo_name, private)
+        return _post_generate(base_dir, verify, push_github, github_repo_name, private)
 
     if json_path:
         try:
@@ -183,7 +235,7 @@ def main(args=None):
             f"Proyecto {base_dir} generado con éxito, "
             "incluyendo todas las capas, tests y docs/index.html."
         )
-        return _publish_if_requested(base_dir, push_github, github_repo_name, private)
+        return _post_generate(base_dir, verify, push_github, github_repo_name, private)
 
     if len(args) < 2:
         print(
@@ -212,6 +264,10 @@ def main(args=None):
             "--github [nombre_repo] sube el proyecto generado como repo nuevo "
             "en GitHub (usa la CLI 'gh', ya autenticada); --private lo crea privado."
         )
+        print(
+            "--verify ejecuta 'mvn verify' sobre el proyecto recién generado y "
+            "reporta el resultado (no publica a GitHub si falla)."
+        )
         return 1
 
     try:
@@ -227,4 +283,4 @@ def main(args=None):
         f"Proyecto {base_dir} generado con éxito, "
         "incluyendo todas las capas, tests y docs/index.html."
     )
-    return _publish_if_requested(base_dir, push_github, github_repo_name, private)
+    return _post_generate(base_dir, verify, push_github, github_repo_name, private)
