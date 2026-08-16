@@ -1,29 +1,45 @@
-import requests
-import json
+#!/usr/bin/env python3
+"""Publica un proyecto ya generado como repositorio nuevo en GitHub.
 
-# Configuración
-GITHUB_TOKEN = 'PEGAR_TU_TOKEN_AQUI'
-REPO_NAME = 'repo-creado-con-requests'
+Version generica: a diferencia del script original, no lleva un token de
+GitHub ni un nombre de repositorio grabados en el fichero. Usa la CLI 'gh'
+(autenticada una vez con 'gh auth login') para crear el repo y subir el
+proyecto. Delega en crud_generator.github_repo, el mismo modulo que usa
+'python generate_crud.py ... --github' para publicar automaticamente lo que
+acaba de generar.
 
-url = 'https://api.github.com/user/repos'
-headers = {
-    'Authorization': f'token {GITHUB_TOKEN}',
-    'Accept': 'application/vnd.github.v3+json'
-}
-data = {
-    'name': REPO_NAME,
-    'description': 'Este repositorio fue creado usando un script de Python y la API de GitHub',
-    'private': False, # Cambia a True si quieres que sea privado
-    'auto_init': True # Puesto en True para que cree un archivo README inicial
-}
+Usage:
+    python createRepo.py <directorio_proyecto> [nombre_repo] [--private]
 
-# Realizar la petición POST
-response = requests.post(url, headers=headers, data=json.dumps(data))
+    directorio_proyecto   Carpeta del proyecto ya generado (por ejemplo,
+                           crud-producto/ o spring-batch-coches/).
+    nombre_repo            Nombre del repositorio en GitHub (por defecto,
+                           el nombre de directorio_proyecto).
+    --private              Crea el repositorio privado en vez de publico.
+"""
 
-# Comprobar el resultado
-if response.status_code == 201:
-    print(f"¡Repositorio creado con éxito!")
-    print(f"URL: {response.json()['html_url']}")
-else:
-    print(f"Error al crear el repositorio. Código: {response.status_code}")
-    print(response.text)
+import argparse
+import sys
+
+from crud_generator.github_repo import push_to_github
+from crud_generator.parsing import DefinitionError
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("project_dir", help="directorio del proyecto ya generado")
+    parser.add_argument("repo_name", nargs="?", default=None, help="nombre del repo en GitHub (por defecto, el del directorio)")
+    parser.add_argument("--private", action="store_true", help="crea el repositorio privado")
+    args = parser.parse_args()
+
+    try:
+        url = push_to_github(args.project_dir, repo_name=args.repo_name, private=args.private)
+    except DefinitionError as error:
+        print(f"Error: {error}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"Repositorio publicado en GitHub: {url}")
+
+
+if __name__ == "__main__":
+    main()

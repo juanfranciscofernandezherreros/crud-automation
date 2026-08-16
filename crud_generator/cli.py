@@ -5,6 +5,7 @@ import sys
 from .architectures import ARCHITECTURES, normalize_architecture
 from .generate_service import generate_batch_project
 from .generator import generate_project, generate_project_from_json
+from .github_repo import push_to_github
 from .parsing import DefinitionError, normalize_entity_name
 from .stream_generator import generate_stream_project
 
@@ -83,6 +84,32 @@ def extract_batch(args):
     return args, batch, target
 
 
+def extract_github(args):
+    args = list(args)
+    push_github = False
+    repo_name = None
+    for option in ("--github", "-g"):
+        if option in args:
+            index = args.index(option)
+            push_github = True
+            if index + 1 < len(args) and not args[index + 1].startswith("-"):
+                repo_name = args[index + 1]
+                del args[index : index + 2]
+            else:
+                del args[index]
+            break
+    return args, push_github, repo_name
+
+
+def extract_private(args):
+    args = list(args)
+    private = False
+    while "--private" in args:
+        args.remove("--private")
+        private = True
+    return args, private
+
+
 def extract_force(args):
     args = list(args)
     force = False
@@ -93,6 +120,21 @@ def extract_force(args):
     return args, force
 
 
+def _publish_if_requested(base_dir, push_github, repo_name, private):
+    """Tras generar un proyecto, lo sube a GitHub si se pidió --github.
+    Un fallo aquí (gh no instalado, sin auth, nombre de repo ya usado...)
+    no borra lo ya generado: solo cambia el código de salida a 2."""
+    if not push_github:
+        return 0
+    try:
+        url = push_to_github(base_dir, repo_name=repo_name, private=private)
+    except DefinitionError as error:
+        print(f"Error subiendo a GitHub: {error}", file=sys.stderr)
+        return 2
+    print(f"Repositorio publicado en GitHub: {url}")
+    return 0
+
+
 def main(args=None):
     args = sys.argv[1:] if args is None else args
     try:
@@ -100,6 +142,8 @@ def main(args=None):
         args, json_path = extract_json_path(args)
         args, stream_path = extract_stream_path(args)
         args, batch, batch_target = extract_batch(args)
+        args, push_github, github_repo_name = extract_github(args)
+        args, private = extract_private(args)
         args, force = extract_force(args)
     except DefinitionError as error:
         print(f"Error: {error}", file=sys.stderr)
@@ -113,9 +157,9 @@ def main(args=None):
             return 2
         print(
             f"Proyecto {base_dir} generado con éxito: microservicio Spring Batch "
-            "(rft-observability-item-batch) con Docker/Compose y CI."
+            "que consulta 'coches' y escribe el resultado en CSV, con Docker/Compose y CI."
         )
-        return 0
+        return _publish_if_requested(base_dir, push_github, github_repo_name, private)
 
     if stream_path:
         try:
@@ -127,7 +171,7 @@ def main(args=None):
             f"Proyecto {base_dir} generado con éxito: topología Kafka Streams, "
             "test de topología y Dockerización."
         )
-        return 0
+        return _publish_if_requested(base_dir, push_github, github_repo_name, private)
 
     if json_path:
         try:
@@ -139,7 +183,7 @@ def main(args=None):
             f"Proyecto {base_dir} generado con éxito, "
             "incluyendo todas las capas, tests y docs/index.html."
         )
-        return 0
+        return _publish_if_requested(base_dir, push_github, github_repo_name, private)
 
     if len(args) < 2:
         print(
@@ -164,6 +208,10 @@ def main(args=None):
             "--force regenera un directorio ya existente en vez de fallar; "
             "las migraciones ya aplicadas se conservan (ver docs/index.html)."
         )
+        print(
+            "--github [nombre_repo] sube el proyecto generado como repo nuevo "
+            "en GitHub (usa la CLI 'gh', ya autenticada); --private lo crea privado."
+        )
         return 1
 
     try:
@@ -179,4 +227,4 @@ def main(args=None):
         f"Proyecto {base_dir} generado con éxito, "
         "incluyendo todas las capas, tests y docs/index.html."
     )
-    return 0
+    return _publish_if_requested(base_dir, push_github, github_repo_name, private)

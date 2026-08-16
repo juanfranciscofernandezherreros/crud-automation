@@ -97,6 +97,144 @@ def normalize_endpoints(values):
     return normalized
 
 
+VALID_HTTP_METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE")
+
+# Cada segmento del path es un literal (letras/numeros/'_'/'-') o el placeholder
+# literal '{id}' -- el unico path variable que el resto del generador sabe
+# resolver (@PathVariable Integer id, igual que get/update/patch/delete).
+CUSTOM_ENDPOINT_PATH_PATTERN = re.compile(
+    r"^/(?:\{id\}|[a-zA-Z0-9_-]+)(?:/(?:\{id\}|[a-zA-Z0-9_-]+))*$"
+)
+
+_CUSTOM_ENDPOINT_FIELD_KEYS = {"name", "type"}
+_CUSTOM_ENDPOINT_KEYS = {"name", "method", "path", "request", "response"}
+
+
+def normalize_http_method(value):
+    method = value.strip().upper() if isinstance(value, str) else value
+    if method not in VALID_HTTP_METHODS:
+        raise DefinitionError(
+            f"'method' desconocido '{value}'. Opciones: {', '.join(VALID_HTTP_METHODS)}."
+        )
+    return method
+
+
+def parse_endpoint_fields(field_specs, label):
+    """Campos de 'request'/'response' de un custom_endpoint: solo nombre y
+    tipo, sin reglas de validacion (a diferencia de parse_attributes_from_fields,
+    que tambien acepta required/unique/default/etc). Devuelve dicts con la
+    misma forma minima que consume fields.generate_dto_fields."""
+    if not isinstance(field_specs, list) or not field_specs:
+        raise DefinitionError(f"'{label}' debe ser una lista no vacía de campos.")
+
+    attrs = []
+    seen = set()
+    for position, field in enumerate(field_specs, start=1):
+        if not isinstance(field, dict):
+            raise DefinitionError(f"El campo {position} de '{label}' debe ser un objeto JSON.")
+
+        name = field.get("name")
+        if not isinstance(name, str) or not ATTRIBUTE_NAME_PATTERN.fullmatch(name):
+            raise DefinitionError(
+                f"Nombre de campo no válido en '{label}' ({position}): '{name}'. "
+                "Usa lower_snake_case."
+            )
+        if name in seen:
+            raise DefinitionError(f"El campo '{name}' está duplicado en '{label}'.")
+
+        type_name = field.get("type")
+        if type_name not in JAVA_TYPES:
+            raise DefinitionError(
+                f"Tipo desconocido '{type_name}' para '{name}' en '{label}'. "
+                f"Tipos admitidos: {', '.join(JAVA_TYPES)}."
+            )
+
+        unknown_keys = set(field) - _CUSTOM_ENDPOINT_FIELD_KEYS
+        if unknown_keys:
+            raise DefinitionError(
+                f"Claves desconocidas en '{name}' ({label}): {', '.join(sorted(unknown_keys))}."
+            )
+
+        seen.add(name)
+        attrs.append({
+            "name": name,
+            "camel_name": to_camel_case(name),
+            "type": type_name,
+            "java_type": JAVA_TYPES[type_name],
+            "is_id": False,
+            "is_audit": False,
+        })
+    return attrs
+
+
+def normalize_custom_endpoints(raw_list):
+    """'custom_endpoints' de una entidad: endpoints de negocio ajenos al CRUD
+    fijo (list/get/create/update/patch/delete), declarados con su path, metodo
+    HTTP y forma de request/response. El generador scaffolds el DTO, el
+    controller y un stub de servicio que lanza UnsupportedOperationException
+    -- no puede inventar la logica de negocio."""
+    if not isinstance(raw_list, list) or not raw_list:
+        raise DefinitionError("'custom_endpoints' debe ser una lista no vacía si se indica.")
+
+    endpoints = []
+    seen_names = set()
+    for position, spec in enumerate(raw_list, start=1):
+        if not isinstance(spec, dict):
+            raise DefinitionError(
+                f"El endpoint {position} de 'custom_endpoints' debe ser un objeto JSON."
+            )
+
+        name = spec.get("name")
+        if not isinstance(name, str) or not ATTRIBUTE_NAME_PATTERN.fullmatch(name):
+            raise DefinitionError(
+                f"Nombre de endpoint no válido en 'custom_endpoints' ({position}): '{name}'. "
+                "Usa lower_snake_case."
+            )
+        if name in seen_names:
+            raise DefinitionError(f"El endpoint '{name}' está duplicado en 'custom_endpoints'.")
+
+        method = normalize_http_method(spec.get("method"))
+
+        path = spec.get("path")
+        if not isinstance(path, str) or not CUSTOM_ENDPOINT_PATH_PATTERN.fullmatch(path):
+            raise DefinitionError(
+                f"'path' no válido en el endpoint '{name}': '{path}'. Debe empezar por '/' y "
+                "usar solo letras, números, '_', '-' o el segmento literal '{id}'."
+            )
+
+        request_fields = spec.get("request")
+        request_attrs = (
+            parse_endpoint_fields(request_fields, f"{name}.request")
+            if request_fields is not None else []
+        )
+
+        response_fields = spec.get("response")
+        response_attrs = (
+            parse_endpoint_fields(response_fields, f"{name}.response")
+            if response_fields is not None else []
+        )
+
+        unknown_keys = set(spec) - _CUSTOM_ENDPOINT_KEYS
+        if unknown_keys:
+            raise DefinitionError(
+                f"Claves desconocidas en el endpoint '{name}': {', '.join(sorted(unknown_keys))}."
+            )
+
+        camel_name = to_camel_case(name)
+        seen_names.add(name)
+        endpoints.append({
+            "name": name,
+            "camel_name": camel_name,
+            "pascal_name": camel_name[0].upper() + camel_name[1:],
+            "method": method,
+            "path": path,
+            "has_id": "{id}" in path,
+            "request_fields": request_attrs,
+            "response_fields": response_attrs,
+        })
+    return endpoints
+
+
 def _validate_default_literal(value, type_name, name):
     if type_name in STRING_LIKE_TYPES:
         return value

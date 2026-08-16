@@ -701,7 +701,11 @@ public final class {entity_name}Specifications {{
 }}
 """
 
-def get_service(entity_name):
+def get_service(entity_name, custom_endpoints=None):
+    custom_signatures = shared_templates.render_custom_endpoint_interface_signatures(
+        custom_endpoints, entity_name
+    )
+    custom_block = f"\n{custom_signatures}" if custom_signatures else ""
     return f"""package com.example.crud.service;
 
 import com.example.crud.dto.*;
@@ -716,16 +720,19 @@ public interface {entity_name}Service {{
     {entity_name}ResponseDTO findById(Integer id);
     {entity_name}ResponseDTO update(Integer id, {entity_name}UpdateDTO updateDTO);
     {entity_name}ResponseDTO patch(Integer id, {entity_name}PatchDTO patchDTO);
-    void delete(Integer id);
+    void delete(Integer id);{custom_block}
 }}
 """
 
-def get_service_impl(entity_name, reference_attrs=None):
+def get_service_impl(entity_name, reference_attrs=None, custom_endpoints=None):
     """reference_attrs: atributos 'reference' de la entidad (@ManyToOne). El
     mapper los ignora (ver get_mapper), asi que aqui se resuelven a mano contra
     el repositorio de la entidad referenciada antes de guardar."""
     reference_attrs = reference_attrs or []
     suffix = shared_templates.capitalize_first
+
+    custom_stubs = shared_templates.render_custom_endpoint_impl_stubs(custom_endpoints, entity_name)
+    custom_stubs_block = f"\n{custom_stubs}" if custom_stubs else ""
 
     reference_imports_block = shared_templates.render_reference_imports_block(
         reference_attrs, "com.example.crud.entity", "com.example.crud.repository"
@@ -818,11 +825,11 @@ public class {entity_name}ServiceImpl implements {entity_name}Service {{
     private {entity_name} getEntity(Integer id) {{
         return repository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("{entity_name} no encontrado con ID: " + id));
-    }}{resolvers_block}
+    }}{resolvers_block}{custom_stubs_block}
 }}
 """
 
-def get_controller(entity_name, entity_lower, endpoints=None):
+def get_controller(entity_name, entity_lower, endpoints=None, custom_endpoints=None):
     endpoints = set(endpoints) if endpoints else set(DEFAULT_ENDPOINTS)
 
     methods = []
@@ -880,6 +887,12 @@ def get_controller(entity_name, entity_lower, endpoints=None):
         service.delete(id);
         return ResponseEntity.noContent().build();
     }}""")
+    if custom_endpoints:
+        methods.extend(
+            shared_templates.render_custom_endpoint_controller_methods(
+                custom_endpoints, entity_name, "service"
+            )
+        )
 
     needs_idempotency = "create" in endpoints
     needs_valid = bool(endpoints & {"create", "update", "patch"})
@@ -1558,7 +1571,10 @@ def get_cucumber_feature(entity_name, entity_lower, endpoints, has_reference):
 """
 
 
-def get_cucumber_steps(entity_name, entity_lower, create_assignments, has_required_fields, endpoints, enum_import_lines=""):
+def get_cucumber_steps(
+    entity_name, entity_lower, create_assignments, has_required_fields, endpoints,
+    enum_import_lines="", dto_package="com.example.crud.dto",
+):
     endpoints = set(endpoints)
     enum_imports = f"{enum_import_lines}\n" if enum_import_lines else ""
 
@@ -1613,7 +1629,7 @@ def get_cucumber_steps(entity_name, entity_lower, create_assignments, has_requir
 
     return f"""package com.example.crud.cucumber;
 
-import com.example.crud.dto.{entity_name}CreateDTO;
+import {dto_package}.{entity_name}CreateDTO;
 {enum_imports}import com.fasterxml.jackson.databind.ObjectMapper;
 import io.cucumber.java.en.Then;
 import io.cucumber.java.en.When;

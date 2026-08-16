@@ -2,7 +2,7 @@
 
 import os
 
-from . import documentation, migrations, ports_templates, templates
+from . import documentation, migrations, ports_templates, shared_templates, templates
 from .architectures import DEFAULT_BASE_PACKAGE
 from .observability import write_observability_stack
 from .fields import (
@@ -62,6 +62,7 @@ def generate_ports_project(entity_name, attrs_str, layout, overwrite=False):
 def _write_ports_scaffolding(write_file, base_dir, project_lower, base_package, main_java, resources):
     """Ficheros de proyecto que se escriben una sola vez, sean una o varias
     entidades: build, Docker, CI, observabilidad, config compartida."""
+    test_java = f"{base_dir}/src/test/java"
     write_file(f"{base_dir}/pom.xml", templates.get_pom_xml(project_lower))
     write_file(f"{base_dir}/Dockerfile", templates.DOCKERFILE)
     write_file(
@@ -110,10 +111,19 @@ def _write_ports_scaffolding(write_file, base_dir, project_lower, base_package, 
         templates.IDEMPOTENCY_SERVICE,
     )
 
+    write_file(
+        java_path(test_java, "com.example.crud.cucumber", "RunCucumberTest.java"),
+        templates.get_cucumber_runner(),
+    )
+    write_file(
+        java_path(test_java, "com.example.crud.cucumber", "CucumberSpringConfiguration.java"),
+        templates.get_cucumber_spring_configuration(),
+    )
+
 
 def _write_ports_entity(
-    write_file, main_java, test_java, resources, base_package, entity_name, attrs, layout, endpoints,
-    inverse_relations=None,
+    write_file, base_dir, main_java, test_java, resources, base_package, entity_name, attrs, layout, endpoints,
+    inverse_relations=None, custom_endpoints=None,
 ):
     """Todos los ficheros propios de UNA entidad: migracion, dominio, entidad
     JPA (+enums), puertos, service, DTOs, mappers, adaptador de persistencia,
@@ -125,8 +135,12 @@ def _write_ports_entity(
     inverse_relations: [(entidad_que_me_referencia, campo_en_esa_entidad), ...]
     (ver fields.compute_inverse_relations) — el lado 'uno' de esas 'reference'
     recibe un @OneToMany de solo lectura en su entidad JPA (no en el dominio:
-    este no tiene acceso a un repositorio para poblarlo)."""
+    este no tiene acceso a un repositorio para poblarlo).
+
+    custom_endpoints: endpoints de negocio ajenos al CRUD fijo, ver
+    parsing.normalize_custom_endpoints."""
     inverse_relations = inverse_relations or []
+    custom_endpoints = custom_endpoints or []
     entity_lower = entity_name.lower()
     table_name = f"{entity_lower}s"
 
@@ -164,7 +178,7 @@ def _write_ports_entity(
     )
     write_file(
         java_path(main_java, layout.input_package, f"{entity_name}UseCase.java"),
-        ports_templates.get_input_port(entity_name, layout),
+        ports_templates.get_input_port(entity_name, layout, custom_endpoints),
     )
     write_file(
         java_path(main_java, layout.output_package, f"{entity_name}PersistencePort.java"),
@@ -176,6 +190,7 @@ def _write_ports_entity(
             entity_name, layout,
             generate_domain_update_statements(attrs),
             generate_domain_update_statements(attrs, patch=True),
+            custom_endpoints,
         ),
     )
 
@@ -207,12 +222,27 @@ def _write_ports_entity(
             ports_templates.get_dto(class_name, layout.dto_package, fields, enum_import_lines),
         )
 
+    for endpoint in custom_endpoints:
+        for suffix, endpoint_fields in (
+            ("RequestDTO", endpoint["request_fields"]),
+            ("ResponseDTO", endpoint["response_fields"]),
+        ):
+            if not endpoint_fields:
+                continue
+            class_name = f"{entity_name}{endpoint['pascal_name']}{suffix}"
+            write_file(
+                java_path(main_java, layout.dto_package, f"{class_name}.java"),
+                shared_templates.render_dto_class(
+                    layout.dto_package, class_name, generate_dto_fields(endpoint_fields)
+                ),
+            )
+
     reference_attrs = [attr for attr in attrs if attr["type"] == "reference"]
     generated_files = {
         (layout.web_mapper_package, f"{entity_name}WebMapper.java"):
             ports_templates.get_web_mapper(entity_name, layout),
         (layout.controller_package, f"{entity_name}Controller.java"):
-            ports_templates.get_controller(entity_name, entity_lower, layout, endpoints),
+            ports_templates.get_controller(entity_name, entity_lower, layout, endpoints, custom_endpoints),
         (layout.persistence_package, f"{entity_name}JpaEntity.java"):
             ports_templates.get_persistence_entity(
                 entity_name,
@@ -265,6 +295,24 @@ def _write_ports_entity(
         ),
     )
 
+    has_reference = bool(reference_attrs)
+    write_file(
+        f"{base_dir}/src/test/resources/features/{entity_lower}.feature",
+        templates.get_cucumber_feature(entity_name, entity_lower, endpoints, has_reference),
+    )
+    write_file(
+        java_path(test_java, "com.example.crud.cucumber", f"{entity_name}Steps.java"),
+        templates.get_cucumber_steps(
+            entity_name,
+            entity_lower,
+            generate_test_dto_assignments(attrs, variable_name="dto"),
+            has_required_input(attrs),
+            endpoints,
+            enum_import_lines,
+            dto_package=layout.dto_package,
+        ),
+    )
+
 
 def generate_ports_project_from_attrs(
     entity_name,
@@ -274,6 +322,7 @@ def generate_ports_project_from_attrs(
     base_package=None,
     endpoints=None,
     overwrite=False,
+    custom_endpoints=None,
 ):
     base_package = base_package or DEFAULT_BASE_PACKAGE
     endpoints = endpoints or list(DEFAULT_ENDPOINTS)
@@ -295,8 +344,8 @@ def generate_ports_project_from_attrs(
         ),
     )
     _write_ports_entity(
-        write_file, main_java, test_java, resources, base_package,
-        entity_name, attrs, layout, endpoints,
+        write_file, base_dir, main_java, test_java, resources, base_package,
+        entity_name, attrs, layout, endpoints, custom_endpoints=custom_endpoints,
     )
     write_file(
         java_path(test_java, "com.example.crud.integration", "PostgreSQLIntegrationTest.java"),
@@ -308,9 +357,9 @@ def generate_ports_project_from_attrs(
 def generate_multi_entity_ports_project(
     project_name, entities, layout, attrs_str, base_package=None, endpoints=None, overwrite=False
 ):
-    """entities: [(entity_name, attrs), ...] ya en orden topologico (ver
-    json_schema.load_entities_schema): una entidad referenciada por otra se
-    genera (y migra) antes que quien la referencia."""
+    """entities: [(entity_name, attrs, custom_endpoints), ...] ya en orden
+    topologico (ver json_schema.load_entities_schema): una entidad referenciada
+    por otra se genera (y migra) antes que quien la referencia."""
     base_package = base_package or DEFAULT_BASE_PACKAGE
     endpoints = endpoints or list(DEFAULT_ENDPOINTS)
     write_file = _make_write_file(base_package)
@@ -324,9 +373,11 @@ def generate_multi_entity_ports_project(
 
     _write_ports_scaffolding(write_file, base_dir, project_lower, base_package, main_java, resources)
 
-    inverse_relations = compute_inverse_relations(entities)
+    inverse_relations = compute_inverse_relations(
+        [(entity_name, attrs) for entity_name, attrs, _ in entities]
+    )
     doc_links = []
-    for entity_name, attrs in entities:
+    for entity_name, attrs, custom_endpoints in entities:
         entity_lower = entity_name.lower()
         write_file(
             f"{base_dir}/docs/{entity_lower}.html",
@@ -337,9 +388,9 @@ def generate_multi_entity_ports_project(
         )
         doc_links.append(f'<li><a href="{entity_lower}.html">{entity_name}</a></li>')
         _write_ports_entity(
-            write_file, main_java, test_java, resources, base_package,
+            write_file, base_dir, main_java, test_java, resources, base_package,
             entity_name, attrs, layout, endpoints,
-            inverse_relations.get(entity_name, []),
+            inverse_relations.get(entity_name, []), custom_endpoints=custom_endpoints,
         )
 
     write_file(

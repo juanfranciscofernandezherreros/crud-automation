@@ -1,0 +1,32 @@
+{
+  "entity": "Tarea",
+  "architecture": "hexagonal",
+  "package": "com.miempresa.tareas",
+  "fields": [
+    {"name": "id", "type": "int"},
+    {"name": "titulo", "type": "string", "not_blank": true, "required": true, "max": 150},
+    {"name": "completada", "type": "boolean", "required": true, "default": false}
+  ],
+  "custom_endpoints": [
+    {
+      "name": "completar",
+      "method": "POST",
+      "path": "/{id}/completar",
+      "response": [
+        {"name": "completada", "type": "boolean"},
+        {"name": "completada_en", "type": "datetime"}
+      ]
+    },
+    {
+      "name": "reasignar",
+      "method": "PATCH",
+      "path": "/{id}/reasignar",
+      "request": [
+        {"name": "nuevo_responsable", "type": "string"}
+      ],
+      "response": [
+        {"name": "responsable_actual", "type": "string"}
+      ]
+    }
+  ]
+}

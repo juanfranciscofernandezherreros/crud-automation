@@ -2,6 +2,7 @@ import unittest
 
 from crud_generator.parsing import (
     DefinitionError,
+    normalize_custom_endpoints,
     normalize_entity_name,
     parse_attributes,
 )
@@ -152,6 +153,99 @@ class NormalizeEntityNameTest(unittest.TestCase):
     def test_generator_rejects_invalid_entity_name(self):
         with self.assertRaisesRegex(DefinitionError, "Nombre de entidad no válido"):
             generate_project("pedido-item", "id:int")
+
+
+class NormalizeCustomEndpointsTest(unittest.TestCase):
+    def test_parses_a_full_endpoint_with_request_and_response(self):
+        endpoints = normalize_custom_endpoints([
+            {
+                "name": "finalizar",
+                "method": "post",
+                "path": "/{id}/finalizar",
+                "request": [{"name": "puntos_local", "type": "int"}],
+                "response": [{"name": "estado", "type": "string"}],
+            }
+        ])
+
+        self.assertEqual(1, len(endpoints))
+        endpoint = endpoints[0]
+        self.assertEqual("finalizar", endpoint["name"])
+        self.assertEqual("finalizar", endpoint["camel_name"])
+        self.assertEqual("Finalizar", endpoint["pascal_name"])
+        self.assertEqual("POST", endpoint["method"])
+        self.assertEqual("/{id}/finalizar", endpoint["path"])
+        self.assertTrue(endpoint["has_id"])
+        self.assertEqual(1, len(endpoint["request_fields"]))
+        self.assertEqual("puntosLocal", endpoint["request_fields"][0]["camel_name"])
+        self.assertEqual("Integer", endpoint["request_fields"][0]["java_type"])
+        self.assertEqual(1, len(endpoint["response_fields"]))
+
+    def test_request_and_response_are_optional(self):
+        endpoints = normalize_custom_endpoints([
+            {"name": "activar", "method": "POST", "path": "/{id}/activar"}
+        ])
+
+        self.assertEqual([], endpoints[0]["request_fields"])
+        self.assertEqual([], endpoints[0]["response_fields"])
+        self.assertFalse(endpoints[0]["request_fields"] or endpoints[0]["response_fields"])
+
+    def test_path_without_id_is_allowed(self):
+        endpoints = normalize_custom_endpoints([
+            {"name": "resumen", "method": "GET", "path": "/resumen"}
+        ])
+
+        self.assertFalse(endpoints[0]["has_id"])
+
+    def test_rejects_unknown_method(self):
+        with self.assertRaisesRegex(DefinitionError, "'method' desconocido"):
+            normalize_custom_endpoints([
+                {"name": "finalizar", "method": "OPTIONS", "path": "/{id}/finalizar"}
+            ])
+
+    def test_rejects_invalid_path(self):
+        with self.assertRaisesRegex(DefinitionError, "'path' no válido"):
+            normalize_custom_endpoints([
+                {"name": "finalizar", "method": "POST", "path": "finalizar"}
+            ])
+
+    def test_rejects_path_variable_other_than_id(self):
+        with self.assertRaisesRegex(DefinitionError, "'path' no válido"):
+            normalize_custom_endpoints([
+                {"name": "finalizar", "method": "POST", "path": "/{slug}/finalizar"}
+            ])
+
+    def test_rejects_duplicate_endpoint_name(self):
+        with self.assertRaisesRegex(DefinitionError, "está duplicado"):
+            normalize_custom_endpoints([
+                {"name": "finalizar", "method": "POST", "path": "/{id}/finalizar"},
+                {"name": "finalizar", "method": "GET", "path": "/{id}/otra"},
+            ])
+
+    def test_rejects_unknown_key(self):
+        with self.assertRaisesRegex(DefinitionError, "Claves desconocidas"):
+            normalize_custom_endpoints([
+                {
+                    "name": "finalizar",
+                    "method": "POST",
+                    "path": "/{id}/finalizar",
+                    "sospechoso": True,
+                }
+            ])
+
+    def test_rejects_unknown_field_type_in_request(self):
+        with self.assertRaisesRegex(DefinitionError, "Tipo desconocido"):
+            normalize_custom_endpoints([
+                {
+                    "name": "finalizar",
+                    "method": "POST",
+                    "path": "/{id}/finalizar",
+                    "request": [{"name": "campo", "type": "reference"}],
+                }
+            ])
+
+    def test_rejects_empty_list(self):
+        with self.assertRaises(DefinitionError):
+            normalize_custom_endpoints([])
 
 
 if __name__ == "__main__":

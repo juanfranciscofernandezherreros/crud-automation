@@ -106,12 +106,17 @@ def get_dto(class_name, package, fields, enum_import_lines=""):
     return shared_templates.render_dto_class(package, class_name, fields, enum_import_lines)
 
 
-def get_input_port(entity_name, layout):
+def get_input_port(entity_name, layout, custom_endpoints=None):
+    custom_signatures = shared_templates.render_custom_endpoint_interface_signatures(
+        custom_endpoints, entity_name
+    )
+    custom_block = f"\n{custom_signatures}" if custom_signatures else ""
+    dto_import = f"\nimport {layout.dto_package}.*;" if custom_endpoints else ""
     return f"""package {layout.input_package};
 
 import {layout.domain_package}.{entity_name};
 import {layout.domain_package}.PageQuery;
-import {layout.domain_package}.PageResult;
+import {layout.domain_package}.PageResult;{dto_import}
 
 public interface {entity_name}UseCase {{
     {entity_name} create({entity_name} entity);
@@ -119,7 +124,7 @@ public interface {entity_name}UseCase {{
     {entity_name} findById(Integer id);
     {entity_name} update(Integer id, {entity_name} replacement);
     {entity_name} patch(Integer id, {entity_name} changes);
-    void delete(Integer id);
+    void delete(Integer id);{custom_block}
 }}
 """
 
@@ -141,7 +146,10 @@ public interface {entity_name}PersistencePort {{
 """
 
 
-def get_service(entity_name, layout, update_statements, patch_statements):
+def get_service(entity_name, layout, update_statements, patch_statements, custom_endpoints=None):
+    custom_stubs = shared_templates.render_custom_endpoint_impl_stubs(custom_endpoints, entity_name)
+    custom_stubs_block = f"\n{custom_stubs}" if custom_stubs else ""
+    dto_import = f"\nimport {layout.dto_package}.*;" if custom_endpoints else ""
     return f"""package {layout.service_package};
 
 import {layout.domain_package}.{entity_name};
@@ -149,7 +157,7 @@ import {layout.input_package}.{entity_name}UseCase;
 import {layout.output_package}.{entity_name}PersistencePort;
 import {layout.exception_package}.ResourceNotFoundException;
 import {layout.domain_package}.PageQuery;
-import {layout.domain_package}.PageResult;
+import {layout.domain_package}.PageResult;{dto_import}
 
 public class {entity_name}Service implements {entity_name}UseCase {{
 
@@ -196,7 +204,7 @@ public class {entity_name}Service implements {entity_name}UseCase {{
     private {entity_name} getEntity(Integer id) {{
         return persistencePort.findById(id).orElseThrow(() ->
                 new ResourceNotFoundException("{entity_name} no encontrado con ID: " + id));
-    }}
+    }}{custom_stubs_block}
 }}
 """
 
@@ -381,7 +389,7 @@ public class {entity_name}PersistenceAdapter implements {entity_name}Persistence
 """
 
 
-def get_controller(entity_name, entity_lower, layout, endpoints=None):
+def get_controller(entity_name, entity_lower, layout, endpoints=None, custom_endpoints=None):
     endpoints = set(endpoints) if endpoints else set(DEFAULT_ENDPOINTS)
 
     methods = []
@@ -442,6 +450,12 @@ def get_controller(entity_name, entity_lower, layout, endpoints=None):
         useCase.delete(id);
         return ResponseEntity.noContent().build();
     }}""")
+    if custom_endpoints:
+        methods.extend(
+            shared_templates.render_custom_endpoint_controller_methods(
+                custom_endpoints, entity_name, "useCase"
+            )
+        )
 
     needs_idempotency = "create" in endpoints
     needs_valid = bool(endpoints & {"create", "update", "patch"})

@@ -15,6 +15,8 @@ recreables y estan excluidas de Git.
 - Opcional pero recomendado: `git config core.hooksPath .githooks` una vez
   por clon, para activar el hook `pre-push` que exige informe en
   `informes/historial-commits.html` por cada commit (regla en `CLAUDE.md`).
+- Opcional, solo para `--github`/`createRepo.py`: [GitHub CLI](https://cli.github.com/)
+  instalada y autenticada (`gh auth login`).
 
 ## Uso
 
@@ -195,6 +197,69 @@ el mismo paquete que el dominio y no haga falta importarla ahi), anota el
 campo con `@Enumerated(EnumType.STRING)` en la entidad JPA y agrega
 `CHECK (estado IN (...))` en Flyway. Funciona en las tres arquitecturas;
 disponible solo vía JSON, no en el DSL de texto.
+
+### Endpoints personalizados (`custom_endpoints`)
+
+El CRUD generado se limita a seis verbos fijos (`list`/`get`/`create`/`update`/
+`patch`/`delete`). Para un endpoint de negocio propio —algo que no encaja en
+ese molde, como "finalizar un partido" o "reasignar una tarea"— declara su
+forma en `custom_endpoints` y el generador scaffolds el DTO, el controller y
+un stub de servicio; la lógica de negocio la escribes tú, porque el generador
+no puede inventarla:
+
+```json
+{
+  "entity": "Tarea",
+  "fields": [...],
+  "custom_endpoints": [
+    {
+      "name": "completar",
+      "method": "POST",
+      "path": "/{id}/completar",
+      "response": [
+        {"name": "completada", "type": "boolean"},
+        {"name": "completada_en", "type": "datetime"}
+      ]
+    },
+    {
+      "name": "reasignar",
+      "method": "PATCH",
+      "path": "/{id}/reasignar",
+      "request": [{"name": "nuevo_responsable", "type": "string"}],
+      "response": [{"name": "responsable_actual", "type": "string"}]
+    }
+  ]
+}
+```
+
+- `name`: lower_snake_case, nombra el método Java (`camelCase`) y las clases
+  DTO (`PascalCase`).
+- `method`: `GET`/`POST`/`PUT`/`PATCH`/`DELETE`.
+- `path`: empieza por `/`, se añade tras `/api/{entity}s`. El único path
+  variable soportado es el segmento literal `{id}` (`@PathVariable Integer id`,
+  igual que `get`/`update`/`patch`/`delete`).
+- `request`/`response`: listas opcionales de `{"name", "type"}` — mismo
+  vocabulario de tipos que los campos de entidad, pero **sin reglas de
+  validación** (no `required`/`unique`/etc.). Sin `request` no hay
+  `@RequestBody`; sin `response` el endpoint devuelve `ResponseEntity<Void>`
+  (204 al completar).
+
+Lo que genera cada endpoint: `{Entity}{Nombre}RequestDTO`/`ResponseDTO` (solo
+las que tengan campos), un método en el controller, la firma correspondiente
+en el `Service` (layered) / `UseCase` (hexagonal, clean), y una implementación
+que lanza `UnsupportedOperationException` — que un `@ExceptionHandler` global
+traduce a `501 Not Implemented` con el mensaje de la excepción. El proyecto
+generado compila y arranca tal cual; sustituye ese `throw` por la lógica real
+cuando la tengas.
+
+Fuera de alcance a propósito: sin reglas de validación en los campos de
+`request`/`response`, sin path variables más allá de `{id}`, y sin tests
+autogenerados para estos endpoints (Cucumber/`ControllerTest` solo cubren el
+CRUD fijo) — verifícalos a mano, igual que el resto de tu lógica de negocio.
+Disponible solo vía JSON (single-entity o por entidad dentro de `entities`),
+no en el DSL de texto. `examples/tareas-endpoint-personalizado.json` es el
+ejemplo de arriba, verificado con `mvn verify` en `hexagonal` y compilación en
+`layered`/`clean`.
 
 ## Campos y reglas
 
@@ -380,25 +445,57 @@ Este ejemplo es `examples/crypto-relay.json`, probado con Docker real
 enviando 50 eventos de criptomonedas a `crypto-prices-in` (ver
 `informes/historial-commits.html`).
 
-## Generacion del microservicio batch (`--batch`)
+## Generacion de un microservicio Spring Batch (`--batch`)
 
-Ademas de CRUD y Kafka Streams, el generador puede recrear de una vez el
-microservicio Spring Batch `rft-observability-item-batch` (job T-32a: lee
-Impala/Kudu vía JdbcTemplate, mapea a la entidad y escribe un CSV), tal y
-como existe hoy en produccion:
+Ademas de CRUD y Kafka Streams, el generador puede crear un microservicio
+Spring Batch minimo y autocontenido (`spring-batch-coches`): un job con un
+unico step de chunk que consulta la tabla `coches` (H2 en memoria, sembrada
+con datos de muestra vía `schema.sql`/`data.sql`), normaliza la matricula a
+mayusculas y escribe el resultado en `output/coches.csv`.
 
 ```powershell
 python .\generate_crud.py --batch
 python .\generate_crud.py --batch .\mi-directorio --force
 ```
 
-A diferencia de `--json`/`--stream`, `--batch` no toma una definicion: no es
-un generador parametrico, sino una recreacion fiel de un proyecto concreto
-ya existente (build Maven, job Spring Batch, Docker/Compose, CI, README) —
-util para restaurarlo desde cero o clonarlo como base de otro job batch.
-El directorio destino es opcional (por defecto `rft-observability-item-batch`,
-relativo al directorio actual); `--force` sobrescribe un directorio ya
-existente, igual que en los demas modos.
+A diferencia de `--json`/`--stream`, `--batch` no toma una definicion: es
+una plantilla de arranque (build Maven, job Spring Batch con reader JDBC +
+processor + writer CSV, Docker, CI, tests, README) pensada para sustituir
+la consulta, el modelo `Coche` y el writer por tu propio dominio cuando el
+job tenga que procesar datos reales. El directorio destino es opcional (por
+defecto `spring-batch-coches`, relativo al directorio actual); `--force`
+sobrescribe un directorio ya existente, igual que en los demas modos.
+
+## Publicar en GitHub (`--github`)
+
+Cualquier modo de generación (DSL de texto, `--json`, `--stream`, `--batch`)
+acepta `--github [nombre_repo]` para, justo después de generar el proyecto,
+subirlo como repositorio nuevo en GitHub:
+
+```powershell
+python .\generate_crud.py Producto "id:int, nombre:string" --github
+python .\generate_crud.py --batch --github spring-batch-coches-demo --private
+```
+
+No usa un token pegado en ningún fichero: se apoya en la CLI `gh`, que el
+usuario autentica una vez con `gh auth login`. Si el directorio generado no
+es aún un repositorio Git, `--github` lo inicializa y crea el primer commit;
+si ya lo es (por ejemplo, tras regenerar con `--force`), sube los cambios
+pendientes tal cual. `nombre_repo` es opcional (por defecto, el nombre del
+directorio generado); `--private` crea el repositorio privado en vez de
+público.
+
+Para publicar un proyecto generado en una ejecución anterior (sin
+regenerarlo), usa `createRepo.py` directamente:
+
+```powershell
+python .\createRepo.py .\crud-producto
+python .\createRepo.py .\spring-batch-coches mi-repo --private
+```
+
+`createRepo.py` es un wrapper fino sobre `crud_generator/github_repo.py` —
+el mismo módulo que usa `--github` — así que ambos caminos crean el repo de
+la misma forma.
 
 ## Pruebas Cucumber (BDD) y reporte Allure
 
@@ -593,8 +690,10 @@ crud_generator/
   stream_schema.py        Carga y validacion del JSON de --stream
   stream_generator.py     Orquestacion de la generacion del proyecto Kafka Streams
   stream_templates.py     Plantillas del proyecto Kafka Streams
-  generate_service.py     Recreacion fiel del microservicio batch (--batch)
+  generate_service.py     Genera el microservicio Spring Batch coches -> CSV (--batch)
+  github_repo.py          Publica un proyecto generado en GitHub via 'gh' (--github)
   schema/entity.schema.json  JSON Schema del formato de entrada
+createRepo.py              Wrapper CLI generico de github_repo.py (uso standalone)
 tests/                    Pruebas de la automatizacion
 examples/                 Ficheros JSON de ejemplo, uno por funcionalidad:
   fondoinversion.json       entidad simple, hexagonal, endpoints parciales
@@ -603,6 +702,7 @@ examples/                 Ficheros JSON de ejemplo, uno por funcionalidad:
   empleados-clean.json      entidad simple, arquitectura clean
   ventas.json                multi-entidad, reference + enum, layered
   categorias-arbol.json      multi-entidad, reference reflexiva (arbol)
+  tareas-endpoint-personalizado.json  entidad simple, hexagonal, custom_endpoints
   sales-streams.json         --stream, agregacion + filtro
   sensores-stream.json       --stream, agregacion sin filtro
   crypto-relay.json          --stream, passthrough (sin agregacion)

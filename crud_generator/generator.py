@@ -23,7 +23,7 @@ from .fields import (
     has_required_input,
 )
 from .parsing import DEFAULT_ENDPOINTS, DefinitionError, normalize_entity_name, parse_attributes
-from . import documentation, migrations, templates
+from . import documentation, migrations, shared_templates, templates
 from .observability import write_observability_stack as _write_observability_stack
 from .writer import write_file as _write_file
 
@@ -98,6 +98,7 @@ def generate_project_from_json(json_path, architecture_override=None, overwrite=
         base_package,
         endpoints,
         attrs,
+        custom_endpoints,
     ) = load_schema(json_path)
     entity_name = normalize_entity_name(entity_name)
     architecture = normalize_architecture(
@@ -110,10 +111,12 @@ def generate_project_from_json(json_path, architecture_override=None, overwrite=
 
         layout = build_ports_architectures(base_package)[architecture]
         return generate_ports_project_from_attrs(
-            entity_name, attrs, layout, command_hint, base_package, endpoints, overwrite
+            entity_name, attrs, layout, command_hint, base_package, endpoints, overwrite,
+            custom_endpoints=custom_endpoints,
         )
     return generate_layered_project_from_attrs(
-        entity_name, attrs, command_hint, base_package, endpoints, overwrite
+        entity_name, attrs, command_hint, base_package, endpoints, overwrite,
+        custom_endpoints=custom_endpoints,
     )
 
 
@@ -196,7 +199,8 @@ def _write_layered_scaffolding(write_file, base_dir, project_lower, base_package
 
 
 def _write_layered_entity(
-    write_file, base_dir, base_package, entity_name, attrs, endpoints, inverse_relations=None
+    write_file, base_dir, base_package, entity_name, attrs, endpoints, inverse_relations=None,
+    custom_endpoints=None,
 ):
     """Todos los ficheros propios de UNA entidad: migracion, entidad JPA (+enums),
     repositorio, specification, DTOs, mapper, service, controller y sus tests
@@ -205,8 +209,12 @@ def _write_layered_entity(
 
     inverse_relations: [(entidad_que_me_referencia, campo_en_esa_entidad), ...]
     (ver fields.compute_inverse_relations) — el lado 'uno' de esas 'reference'
-    recibe ademas un @OneToMany de solo lectura."""
+    recibe ademas un @OneToMany de solo lectura.
+
+    custom_endpoints: endpoints de negocio ajenos al CRUD fijo, ver
+    parsing.normalize_custom_endpoints."""
     inverse_relations = inverse_relations or []
+    custom_endpoints = custom_endpoints or []
     entity_lower = entity_name.lower()
     package_path = base_package.replace(".", "/")
     java_base = f"{base_dir}/src/main/java/{package_path}"
@@ -277,17 +285,34 @@ def _write_layered_entity(
             templates.get_dto(class_name, fields, enum_import_lines),
         )
 
+    for endpoint in custom_endpoints:
+        for suffix, endpoint_fields in (
+            ("RequestDTO", endpoint["request_fields"]),
+            ("ResponseDTO", endpoint["response_fields"]),
+        ):
+            if not endpoint_fields:
+                continue
+            class_name = f"{entity_name}{endpoint['pascal_name']}{suffix}"
+            write_file(
+                f"{java_base}/dto/{class_name}.java",
+                shared_templates.render_dto_class(
+                    "com.example.crud.dto", class_name, generate_dto_fields(endpoint_fields)
+                ),
+            )
+
     reference_attrs = [attr for attr in attrs if attr["type"] == "reference"]
     generated_java_files = {
         f"mapper/{entity_name}Mapper.java": templates.get_mapper(
             entity_name, reference_attrs
         ),
-        f"service/{entity_name}Service.java": templates.get_service(entity_name),
+        f"service/{entity_name}Service.java": templates.get_service(
+            entity_name, custom_endpoints
+        ),
         f"service/impl/{entity_name}ServiceImpl.java": templates.get_service_impl(
-            entity_name, reference_attrs
+            entity_name, reference_attrs, custom_endpoints
         ),
         f"controller/{entity_name}Controller.java": templates.get_controller(
-            entity_name, entity_lower, endpoints
+            entity_name, entity_lower, endpoints, custom_endpoints
         ),
     }
     for relative_path, content in generated_java_files.items():
@@ -329,7 +354,8 @@ def _write_layered_entity(
 
 
 def generate_layered_project_from_attrs(
-    entity_name, attrs, attrs_str, base_package=None, endpoints=None, overwrite=False
+    entity_name, attrs, attrs_str, base_package=None, endpoints=None, overwrite=False,
+    custom_endpoints=None,
 ):
     base_package = base_package or DEFAULT_BASE_PACKAGE
     endpoints = endpoints or list(DEFAULT_ENDPOINTS)
@@ -347,7 +373,10 @@ def generate_layered_project_from_attrs(
             base_package, endpoints,
         ),
     )
-    _write_layered_entity(write_file, base_dir, base_package, entity_name, attrs, endpoints)
+    _write_layered_entity(
+        write_file, base_dir, base_package, entity_name, attrs, endpoints,
+        custom_endpoints=custom_endpoints,
+    )
 
     test_base = f"{base_dir}/src/test/java/{base_package.replace('.', '/')}"
     write_file(
@@ -361,9 +390,9 @@ def generate_layered_project_from_attrs(
 def generate_multi_entity_layered_project(
     project_name, entities, attrs_str, base_package=None, endpoints=None, overwrite=False
 ):
-    """entities: [(entity_name, attrs), ...] ya en orden topologico (ver
-    json_schema.load_entities_schema): una entidad referenciada por otra se
-    genera (y migra) antes que quien la referencia."""
+    """entities: [(entity_name, attrs, custom_endpoints), ...] ya en orden
+    topologico (ver json_schema.load_entities_schema): una entidad referenciada
+    por otra se genera (y migra) antes que quien la referencia."""
     base_package = base_package or DEFAULT_BASE_PACKAGE
     endpoints = endpoints or list(DEFAULT_ENDPOINTS)
     write_file = _make_write_file(base_package)
@@ -374,9 +403,11 @@ def generate_multi_entity_layered_project(
 
     _write_layered_scaffolding(write_file, base_dir, project_lower, base_package, endpoints)
 
-    inverse_relations = compute_inverse_relations(entities)
+    inverse_relations = compute_inverse_relations(
+        [(entity_name, attrs) for entity_name, attrs, _ in entities]
+    )
     doc_links = []
-    for entity_name, attrs in entities:
+    for entity_name, attrs, custom_endpoints in entities:
         entity_lower = entity_name.lower()
         write_file(
             f"{base_dir}/docs/{entity_lower}.html",
@@ -388,7 +419,7 @@ def generate_multi_entity_layered_project(
         doc_links.append(f'<li><a href="{entity_lower}.html">{entity_name}</a></li>')
         _write_layered_entity(
             write_file, base_dir, base_package, entity_name, attrs, endpoints,
-            inverse_relations.get(entity_name, []),
+            inverse_relations.get(entity_name, []), custom_endpoints=custom_endpoints,
         )
 
     write_file(

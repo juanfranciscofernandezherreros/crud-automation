@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import patch
 
 from crud_generator.cli import choose_architecture, main
+from crud_generator.parsing import DefinitionError
 
 
 class CliTest(unittest.TestCase):
@@ -96,7 +97,7 @@ class CliTest(unittest.TestCase):
 
     @patch(
         "crud_generator.cli.generate_batch_project",
-        return_value="rft-observability-item-batch",
+        return_value="spring-batch-coches",
     )
     def test_generates_batch_project(self, generate_batch_project):
         stdout = io.StringIO()
@@ -106,7 +107,7 @@ class CliTest(unittest.TestCase):
 
         self.assertEqual(0, exit_code)
         generate_batch_project.assert_called_once_with(None, overwrite=False)
-        self.assertIn("rft-observability-item-batch", stdout.getvalue())
+        self.assertIn("spring-batch-coches", stdout.getvalue())
 
     @patch(
         "crud_generator.cli.generate_batch_project",
@@ -118,6 +119,53 @@ class CliTest(unittest.TestCase):
 
         self.assertEqual(0, exit_code)
         generate_batch_project.assert_called_once_with("mi-batch", overwrite=True)
+
+    @patch("crud_generator.cli.push_to_github", return_value="https://github.com/user/crud-producto")
+    @patch("crud_generator.cli.generate_project", return_value="crud-producto")
+    def test_github_flag_publishes_generated_project(self, generate_project, push_to_github):
+        stdout = io.StringIO()
+
+        with contextlib.redirect_stdout(stdout):
+            exit_code = main(["Producto", "id:int,nombre:string", "--github"])
+
+        self.assertEqual(0, exit_code)
+        push_to_github.assert_called_once_with("crud-producto", repo_name=None, private=False)
+        self.assertIn("https://github.com/user/crud-producto", stdout.getvalue())
+
+    @patch("crud_generator.cli.push_to_github", return_value="https://github.com/user/mi-repo")
+    @patch("crud_generator.cli.generate_batch_project", return_value="spring-batch-coches")
+    def test_github_flag_accepts_repo_name_and_private(self, generate_batch_project, push_to_github):
+        with contextlib.redirect_stdout(io.StringIO()):
+            exit_code = main(["--batch", "--github", "mi-repo", "--private"])
+
+        self.assertEqual(0, exit_code)
+        push_to_github.assert_called_once_with(
+            "spring-batch-coches", repo_name="mi-repo", private=True
+        )
+
+    @patch("crud_generator.cli.generate_project", return_value="crud-producto")
+    def test_without_github_flag_does_not_publish(self, generate_project):
+        with patch("crud_generator.cli.push_to_github") as push_to_github:
+            with contextlib.redirect_stdout(io.StringIO()):
+                exit_code = main(["Producto", "id:int,nombre:string"])
+
+            self.assertEqual(0, exit_code)
+            push_to_github.assert_not_called()
+
+    @patch(
+        "crud_generator.cli.push_to_github",
+        side_effect=DefinitionError("gh no esta autenticado"),
+    )
+    @patch("crud_generator.cli.generate_project", return_value="crud-producto")
+    def test_github_publish_failure_returns_two(self, generate_project, push_to_github):
+        stderr = io.StringIO()
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            with contextlib.redirect_stderr(stderr):
+                exit_code = main(["Producto", "id:int,nombre:string", "--github"])
+
+        self.assertEqual(2, exit_code)
+        self.assertIn("gh no esta autenticado", stderr.getvalue())
 
     def test_existing_directory_without_force_is_rejected(self):
         import os

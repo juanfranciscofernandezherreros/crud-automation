@@ -207,6 +207,11 @@ public class GlobalExceptionHandler {{
         return error(HttpStatus.BAD_REQUEST, "Error de validación en los campos", fieldErrors);
     }}
 
+    @ExceptionHandler(UnsupportedOperationException.class)
+    public ResponseEntity<Map<String, Object>> handleNotImplemented(UnsupportedOperationException ex) {{
+        return error(HttpStatus.NOT_IMPLEMENTED, ex.getMessage(), Map.of());
+    }}
+
     private ResponseEntity<Map<String, Object>> error(
             HttpStatus status, String message, Map<String, String> fieldErrors) {{
         Map<String, Object> body = new HashMap<>();
@@ -219,3 +224,105 @@ public class GlobalExceptionHandler {{
     }}
 }}
 """
+
+
+_HTTP_VERB_ANNOTATIONS = {
+    "GET": "GetMapping",
+    "POST": "PostMapping",
+    "PUT": "PutMapping",
+    "PATCH": "PatchMapping",
+    "DELETE": "DeleteMapping",
+}
+
+
+def _custom_endpoint_dto_names(entity_name, endpoint):
+    request_dto = (
+        f"{entity_name}{endpoint['pascal_name']}RequestDTO" if endpoint["request_fields"] else None
+    )
+    response_dto = (
+        f"{entity_name}{endpoint['pascal_name']}ResponseDTO" if endpoint["response_fields"] else None
+    )
+    return request_dto, response_dto
+
+
+def render_custom_endpoint_controller_methods(custom_endpoints, entity_name, callee):
+    """Un metodo de controller por cada 'custom_endpoint' de la entidad,
+    devuelto como lista para que el caller haga methods.extend(...) sobre la
+    misma lista donde ya viven los metodos CRUD condicionales (list/get/
+    create/update/patch/delete), antes del "\\n".join(methods) final. `callee`
+    es el campo que el controller ya usa para llamar a la logica de negocio:
+    "service" en layered, "useCase" en hexagonal/clean."""
+    methods = []
+    for endpoint in custom_endpoints or []:
+        request_dto, response_dto = _custom_endpoint_dto_names(entity_name, endpoint)
+        params = []
+        if endpoint["has_id"]:
+            params.append("@PathVariable Integer id")
+        if request_dto:
+            params.append(f"@RequestBody {request_dto} request")
+        params_str = ", ".join(params)
+
+        call_args = []
+        if endpoint["has_id"]:
+            call_args.append("id")
+        if request_dto:
+            call_args.append("request")
+        call_args_str = ", ".join(call_args)
+
+        verb_annotation = _HTTP_VERB_ANNOTATIONS[endpoint["method"]]
+        if response_dto:
+            return_type = f"ResponseEntity<{response_dto}>"
+            body = f"        return ResponseEntity.ok({callee}.{endpoint['camel_name']}({call_args_str}));"
+        else:
+            return_type = "ResponseEntity<Void>"
+            body = (
+                f"        {callee}.{endpoint['camel_name']}({call_args_str});\n"
+                "        return ResponseEntity.noContent().build();"
+            )
+
+        methods.append(f"""
+    @{verb_annotation}("{endpoint['path']}")
+    public {return_type} {endpoint['camel_name']}({params_str}) {{
+{body}
+    }}""")
+    return methods
+
+
+def render_custom_endpoint_interface_signatures(custom_endpoints, entity_name):
+    """Una firma de metodo por 'custom_endpoint', para el interface de
+    servicio (layered `{Entity}Service`) o el puerto de entrada (hexagonal/
+    clean `{Entity}UseCase`) -- misma forma en ambos casos."""
+    lines = []
+    for endpoint in custom_endpoints or []:
+        request_dto, response_dto = _custom_endpoint_dto_names(entity_name, endpoint)
+        params = []
+        if endpoint["has_id"]:
+            params.append("Integer id")
+        if request_dto:
+            params.append(f"{request_dto} request")
+        return_type = response_dto or "void"
+        lines.append(f"    {return_type} {endpoint['camel_name']}({', '.join(params)});")
+    return "\n".join(lines)
+
+
+def render_custom_endpoint_impl_stubs(custom_endpoints, entity_name):
+    """Un metodo @Override por 'custom_endpoint' que lanza
+    UnsupportedOperationException: el generador no puede inventar la logica
+    de negocio, asi que deja un stub que compila y responde 501 (ver
+    render_global_exception_handler) hasta que el usuario lo implemente."""
+    blocks = []
+    for endpoint in custom_endpoints or []:
+        request_dto, response_dto = _custom_endpoint_dto_names(entity_name, endpoint)
+        params = []
+        if endpoint["has_id"]:
+            params.append("Integer id")
+        if request_dto:
+            params.append(f"{request_dto} request")
+        return_type = response_dto or "void"
+        blocks.append(f"""
+    @Override
+    public {return_type} {endpoint['camel_name']}({', '.join(params)}) {{
+        throw new UnsupportedOperationException(
+                "{endpoint['camel_name']} no está implementado todavía (generado por crud_generator).");
+    }}""")
+    return "\n".join(blocks)

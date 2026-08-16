@@ -52,6 +52,7 @@ import re
 from .parsing import (
     DefinitionError,
     normalize_base_package,
+    normalize_custom_endpoints,
     normalize_endpoints,
     normalize_entity_name,
     parse_attributes_from_fields,
@@ -118,7 +119,9 @@ def load_schema(path):
     if not isinstance(fields, list) or not fields:
         raise DefinitionError("El JSON debe indicar 'fields' como una lista no vacía.")
 
-    architecture, base_package, endpoints = _shared_top_level(data, extra_allowed={"entity", "fields"})
+    architecture, base_package, endpoints = _shared_top_level(
+        data, extra_allowed={"entity", "fields", "custom_endpoints"}
+    )
 
     attrs = parse_attributes_from_fields(fields)
     reference = next((attr for attr in attrs if attr["type"] == "reference"), None)
@@ -128,15 +131,21 @@ def load_schema(path):
             "sola entidad. Las relaciones entre entidades exigen el formato "
             "multi-entidad: {\"entities\": [...]} (ver documentación)."
         )
-    return entity_name, architecture, base_package, endpoints, attrs
+
+    raw_custom_endpoints = data.get("custom_endpoints")
+    custom_endpoints = (
+        normalize_custom_endpoints(raw_custom_endpoints) if raw_custom_endpoints is not None else []
+    )
+
+    return entity_name, architecture, base_package, endpoints, attrs, custom_endpoints
 
 
 def load_entities_schema(path):
     """Carga el formato multi-entidad. Devuelve
     (project_name, architecture, base_package, endpoints, entities) donde
-    'entities' es [(entity_name, attrs), ...] en orden topológico: una entidad
-    referenciada por otra siempre aparece antes que quien la referencia, para
-    que su tabla/migracion exista primero."""
+    'entities' es [(entity_name, attrs, custom_endpoints), ...] en orden
+    topológico: una entidad referenciada por otra siempre aparece antes que
+    quien la referencia, para que su tabla/migracion exista primero."""
     data = _read_json(path)
 
     raw_entities = data.get("entities")
@@ -155,6 +164,7 @@ def load_entities_schema(path):
     )
 
     parsed = {}
+    custom_endpoints_by_entity = {}
     order = []
     for position, spec in enumerate(raw_entities, start=1):
         if not isinstance(spec, dict):
@@ -168,7 +178,7 @@ def load_entities_schema(path):
         fields = spec.get("fields")
         if not isinstance(fields, list) or not fields:
             raise DefinitionError(f"La entidad '{entity_name}' debe indicar 'fields'.")
-        unknown = set(spec) - {"entity", "fields"}
+        unknown = set(spec) - {"entity", "fields", "custom_endpoints"}
         if unknown:
             raise DefinitionError(
                 f"Claves desconocidas en la entidad '{entity_name}': "
@@ -177,6 +187,11 @@ def load_entities_schema(path):
         if entity_name in parsed:
             raise DefinitionError(f"La entidad '{entity_name}' está duplicada en 'entities'.")
         parsed[entity_name] = parse_attributes_from_fields(fields)
+        raw_custom_endpoints = spec.get("custom_endpoints")
+        custom_endpoints_by_entity[entity_name] = (
+            normalize_custom_endpoints(raw_custom_endpoints)
+            if raw_custom_endpoints is not None else []
+        )
         order.append(entity_name)
 
     for entity_name, attrs in parsed.items():
@@ -190,12 +205,16 @@ def load_entities_schema(path):
                 )
 
     project_name = project if project else order[0]
+    entities = [
+        (entity_name, attrs, custom_endpoints_by_entity[entity_name])
+        for entity_name, attrs in _topologically_ordered(order, parsed)
+    ]
     return (
         project_name,
         architecture,
         base_package,
         endpoints,
-        _topologically_ordered(order, parsed),
+        entities,
     )
 
 

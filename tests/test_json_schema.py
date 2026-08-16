@@ -237,13 +237,14 @@ class LoadSchemaTest(unittest.TestCase):
                 },
             )
 
-            entity_name, architecture, base_package, endpoints, attrs = load_schema(path)
+            entity_name, architecture, base_package, endpoints, attrs, custom_endpoints = load_schema(path)
 
             self.assertEqual("Producto", entity_name)
             self.assertEqual("hexagonal", architecture)
             self.assertIsNone(base_package)
             self.assertIsNone(endpoints)
             self.assertEqual(2, len(attrs))
+            self.assertEqual([], custom_endpoints)
 
     def test_architecture_is_optional(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -252,7 +253,7 @@ class LoadSchemaTest(unittest.TestCase):
                 {"entity": "Producto", "fields": [{"name": "id", "type": "int"}]},
             )
 
-            _, architecture, _, _, _ = load_schema(path)
+            _, architecture, _, _, _, _ = load_schema(path)
 
             self.assertIsNone(architecture)
 
@@ -268,7 +269,7 @@ class LoadSchemaTest(unittest.TestCase):
                 },
             )
 
-            _, _, base_package, endpoints, _ = load_schema(path)
+            _, _, base_package, endpoints, _, _ = load_schema(path)
 
             self.assertEqual("com.miempresa.catalogo", base_package)
             self.assertEqual(["list", "get"], endpoints)
@@ -314,6 +315,40 @@ class LoadSchemaTest(unittest.TestCase):
 
             with self.assertRaisesRegex(DefinitionError, "Claves desconocidas"):
                 load_schema(path)
+
+    def test_loads_custom_endpoints(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = self._write_json(
+                directory,
+                {
+                    "entity": "Producto",
+                    "fields": [{"name": "id", "type": "int"}],
+                    "custom_endpoints": [
+                        {
+                            "name": "activar",
+                            "method": "POST",
+                            "path": "/{id}/activar",
+                            "response": [{"name": "activo", "type": "boolean"}],
+                        }
+                    ],
+                },
+            )
+
+            _, _, _, _, _, custom_endpoints = load_schema(path)
+
+            self.assertEqual(1, len(custom_endpoints))
+            self.assertEqual("activar", custom_endpoints[0]["name"])
+
+    def test_custom_endpoints_default_to_empty_list(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = self._write_json(
+                directory,
+                {"entity": "Producto", "fields": [{"name": "id", "type": "int"}]},
+            )
+
+            _, _, _, _, _, custom_endpoints = load_schema(path)
+
+            self.assertEqual([], custom_endpoints)
 
 
 class GenerateProjectFromJsonTest(unittest.TestCase):
@@ -443,7 +478,7 @@ class LoadEntitiesSchemaTest(unittest.TestCase):
             )
 
             self.assertEqual("ventas", project_name)
-            self.assertEqual(["Cliente", "Pedido"], [name for name, _ in entities])
+            self.assertEqual(["Cliente", "Pedido"], [name for name, _, _ in entities])
 
     def test_rejects_reference_to_undefined_entity(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -515,7 +550,35 @@ class LoadEntitiesSchemaTest(unittest.TestCase):
                 },
             )
             _, _, _, _, entities = load_entities_schema(path)
-            self.assertEqual(["Categoria"], [name for name, _ in entities])
+            self.assertEqual(["Categoria"], [name for name, _, _ in entities])
+
+    def test_loads_custom_endpoints_per_entity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = self._write_json(
+                directory,
+                {
+                    "entities": [
+                        {
+                            "entity": "Cliente",
+                            "fields": [{"name": "id", "type": "int"}],
+                            "custom_endpoints": [
+                                {
+                                    "name": "bloquear",
+                                    "method": "POST",
+                                    "path": "/{id}/bloquear",
+                                }
+                            ],
+                        },
+                        {"entity": "Pedido", "fields": [{"name": "id", "type": "int"}]},
+                    ]
+                },
+            )
+            _, _, _, _, entities = load_entities_schema(path)
+
+            by_name = {name: custom_endpoints for name, _, custom_endpoints in entities}
+            self.assertEqual(1, len(by_name["Cliente"]))
+            self.assertEqual("bloquear", by_name["Cliente"][0]["name"])
+            self.assertEqual([], by_name["Pedido"])
 
     def test_project_name_defaults_to_first_entity_when_project_key_absent(self):
         with tempfile.TemporaryDirectory() as directory:
