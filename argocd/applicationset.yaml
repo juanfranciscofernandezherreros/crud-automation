@@ -1,0 +1,55 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: crud-repositories
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - list:
+        elements:
+          - repo: crud-articulo
+            branch: main
+          - repo: crud-catalogo
+            branch: main
+          - repo: crud-crypto-relay
+            branch: main
+          - repo: crud-empleado-clean
+            branch: main
+          - repo: crud-fondoinversion-hexagonal
+            branch: main
+          - repo: crud-partidobaloncesto-hexagonal
+            branch: main
+          - repo: crud-producto
+            branch: main
+          - repo: crud-sales-streams
+            branch: main
+          - repo: crud-sensores-stream
+            branch: main
+          - repo: crud-transferencia-hexagonal
+            branch: main
+          - repo: crud-ventas
+            branch: main
+  template:
+    metadata:
+      name: "{{.repo}}"
+      labels:
+        app.kubernetes.io/managed-by: crud-repositories
+    spec:
+      project: default
+      source:
+        repoURL: "https://github.com/juanfranciscofernandezherreros/{{.repo}}.git"
+        targetRevision: "{{.branch}}"
+        path: k8s
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: "{{.repo}}"
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - PruneLast=true
+          - ApplyOutOfSyncOnly=true
