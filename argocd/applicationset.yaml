@@ -31,8 +31,6 @@ spec:
             branch: main
           - repo: crud-ventas
             branch: main
-          - repo: photos-sync
-            branch: master
   template:
     metadata:
       name: "{{.repo}}"

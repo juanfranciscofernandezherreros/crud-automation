@@ -1,0 +1,22 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: photos-sync
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  description: Proyecto GitOps exclusivo para Photos Sync
+  sourceRepos:
+    - https://github.com/juanfranciscofernandezherreros/photos-sync.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: photos-sync
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+  namespaceResourceWhitelist:
+    - group: "*"
+      kind: "*"
+  orphanedResources:
+    warn: true
