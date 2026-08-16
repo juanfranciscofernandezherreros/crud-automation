@@ -1,0 +1,23 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: renta-form
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  description: Proyecto GitOps exclusivo para Renta Form
+  sourceRepos:
+    - https://github.com/juanfranciscofernandezherreros/renta-form.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: renta-form
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+  namespaceResourceWhitelist:
+    - group: "*"
+      kind: "*"
+  orphanedResources:
+    warn: true
+
