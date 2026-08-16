@@ -747,7 +747,7 @@ La cache Maven de aceptacion se guarda en `.m2/repository` dentro del workspace.
 Se puede cambiar con `CRUD_GENERATOR_MAVEN_REPO`.
 
 `.github/workflows/ci.yml` ejecuta esta misma suite (`python -m pytest -q`) en
-cada push/PR a `master`, con Python, JDK 21 y Docker ya disponibles en el
+cada push/PR a `main`, con Python, JDK 21 y Docker ya disponibles en el
 runner de GitHub Actions: el generador se prueba a si mismo en CI igual que
 la plantilla de CI que produce para cada proyecto generado.
 

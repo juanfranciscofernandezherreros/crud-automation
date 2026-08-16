@@ -7,7 +7,7 @@ spec:
   project: default
   source:
     repoURL: https://github.com/juanfranciscofernandezherreros/crud-automation.git
-    targetRevision: master
+    targetRevision: main
     path: argocd
   destination:
     server: https://kubernetes.default.svc
