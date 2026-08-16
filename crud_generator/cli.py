@@ -3,6 +3,7 @@
 import sys
 
 from .architectures import ARCHITECTURES, normalize_architecture
+from .conventions import load_conventions, save_conventions
 from .generate_service import generate_batch_project
 from .generator import generate_project, generate_project_from_json
 from .github_repo import push_to_github
@@ -130,6 +131,35 @@ def extract_verify(args):
     return args, verify
 
 
+def extract_remember(args):
+    args = list(args)
+    remember = False
+    while "--remember" in args:
+        args.remove("--remember")
+        remember = True
+    return args, remember
+
+
+def _remember_if_requested(remember, architecture, base_package=None, endpoints=None):
+    """Guarda las convenciones efectivas de esta generación (si se pidió
+    --remember) para que la próxima ejecución en este mismo directorio ya
+    las tenga por defecto. Nunca guarda --verify/--github: esos disparan
+    acciones reales y deben pedirse explícitamente cada vez."""
+    if not remember:
+        return
+    data = {}
+    if architecture:
+        data["architecture"] = architecture
+    if base_package:
+        data["package"] = base_package
+    if endpoints:
+        data["endpoints"] = list(endpoints)
+    if not data:
+        return
+    path = save_conventions(data)
+    print(f"Convenciones guardadas en {path}.")
+
+
 def _verify_if_requested(base_dir, verify):
     """Tras generar un proyecto, ejecuta 'mvn verify' si se pidió --verify.
     No modifica el proyecto generado -- diagnostica, no corrige (ver
@@ -189,6 +219,7 @@ def _post_generate(base_dir, verify, push_github, repo_name, private):
 def main(args=None):
     args = sys.argv[1:] if args is None else args
     try:
+        conventions = load_conventions()
         args, architecture = extract_architecture(args)
         args, json_path = extract_json_path(args)
         args, stream_path = extract_stream_path(args)
@@ -197,9 +228,17 @@ def main(args=None):
         args, private = extract_private(args)
         args, force = extract_force(args)
         args, verify = extract_verify(args)
+        args, remember = extract_remember(args)
     except DefinitionError as error:
         print(f"Error: {error}", file=sys.stderr)
         return 2
+
+    # conventions.architecture solo alimenta el modo DSL (mas abajo): en modo
+    # --json ya existe una fuente de verdad mas especifica, el propio campo
+    # "architecture" del fichero, y --architecture explicito en CLI ya le
+    # gana a ese campo (ver generator.generate_project_from_json) -- dejar
+    # que una convencion antigua se cuele con esa misma prioridad pisaria un
+    # "architecture" puesto a proposito en un JSON concreto.
 
     if batch:
         try:
@@ -235,6 +274,7 @@ def main(args=None):
             f"Proyecto {base_dir} generado con éxito, "
             "incluyendo todas las capas, tests y docs/index.html."
         )
+        _remember_if_requested(remember, architecture)
         return _post_generate(base_dir, verify, push_github, github_repo_name, private)
 
     if len(args) < 2:
@@ -268,13 +308,23 @@ def main(args=None):
             "--verify ejecuta 'mvn verify' sobre el proyecto recién generado y "
             "reporta el resultado (no publica a GitHub si falla)."
         )
+        print(
+            "--remember guarda la arquitectura/paquete/endpoints usados en "
+            "crud-automation.conventions.json, para que la próxima ejecución "
+            "en este mismo directorio ya los tenga por defecto."
+        )
         return 1
 
+    package = conventions.get("package")
+    endpoints = conventions.get("endpoints")
     try:
-        architecture = architecture or choose_architecture()
+        architecture = architecture or conventions.get("architecture") or choose_architecture()
         entity_name = normalize_entity_name(args[0])
         attrs_str = " ".join(args[1:])
-        base_dir = generate_project(entity_name, attrs_str, architecture, overwrite=force)
+        base_dir = generate_project(
+            entity_name, attrs_str, architecture,
+            base_package=package, endpoints=endpoints, overwrite=force,
+        )
     except DefinitionError as error:
         print(f"Error: {error}", file=sys.stderr)
         return 2
@@ -283,4 +333,5 @@ def main(args=None):
         f"Proyecto {base_dir} generado con éxito, "
         "incluyendo todas las capas, tests y docs/index.html."
     )
+    _remember_if_requested(remember, architecture, package, endpoints)
     return _post_generate(base_dir, verify, push_github, github_repo_name, private)

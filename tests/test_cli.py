@@ -34,7 +34,8 @@ class CliTest(unittest.TestCase):
 
         self.assertEqual(0, exit_code)
         generate_project.assert_called_once_with(
-            "Producto", "id:int,nombre:string", "layered", overwrite=False
+            "Producto", "id:int,nombre:string", "layered",
+            base_package=None, endpoints=None, overwrite=False,
         )
 
     @patch("crud_generator.cli.generate_project", return_value="crud-producto-hexagonal")
@@ -51,7 +52,8 @@ class CliTest(unittest.TestCase):
 
         self.assertEqual(0, exit_code)
         generate_project.assert_called_once_with(
-            "Producto", "id:int,nombre:string", "hexagonal", overwrite=False
+            "Producto", "id:int,nombre:string", "hexagonal",
+            base_package=None, endpoints=None, overwrite=False,
         )
 
     @patch("crud_generator.cli.generate_project", return_value="crud-producto")
@@ -61,7 +63,8 @@ class CliTest(unittest.TestCase):
 
         self.assertEqual(0, exit_code)
         generate_project.assert_called_once_with(
-            "Producto", "id:int,nombre:string", "layered", overwrite=True
+            "Producto", "id:int,nombre:string", "layered",
+            base_package=None, endpoints=None, overwrite=True,
         )
 
     @patch(
@@ -219,6 +222,80 @@ class CliTest(unittest.TestCase):
 
             self.assertEqual(0, exit_code)
             verify_project.assert_not_called()
+
+    @patch("crud_generator.cli.save_conventions")
+    @patch("crud_generator.cli.load_conventions", return_value={})
+    @patch("crud_generator.cli.generate_project", return_value="crud-producto")
+    def test_remember_flag_saves_effective_architecture(
+        self, generate_project, load_conventions, save_conventions
+    ):
+        save_conventions.return_value = "crud-automation.conventions.json"
+        stdout = io.StringIO()
+
+        with contextlib.redirect_stdout(stdout):
+            exit_code = main(
+                ["Producto", "id:int,nombre:string", "--architecture", "hexagonal", "--remember"]
+            )
+
+        self.assertEqual(0, exit_code)
+        save_conventions.assert_called_once_with({"architecture": "hexagonal"})
+        self.assertIn("Convenciones guardadas", stdout.getvalue())
+
+    @patch("crud_generator.cli.load_conventions", return_value={})
+    @patch("crud_generator.cli.generate_project", return_value="crud-producto")
+    def test_without_remember_flag_does_not_save_conventions(self, generate_project, load_conventions):
+        with patch("crud_generator.cli.save_conventions") as save_conventions:
+            with contextlib.redirect_stdout(io.StringIO()):
+                exit_code = main(["Producto", "id:int,nombre:string"])
+
+            self.assertEqual(0, exit_code)
+            save_conventions.assert_not_called()
+
+    @patch(
+        "crud_generator.cli.load_conventions",
+        return_value={"architecture": "clean", "package": "com.miempresa.x", "endpoints": ["list"]},
+    )
+    @patch("crud_generator.cli.generate_project", return_value="crud-producto-clean")
+    def test_conventions_provide_defaults_when_no_explicit_architecture(
+        self, generate_project, load_conventions
+    ):
+        with contextlib.redirect_stdout(io.StringIO()):
+            exit_code = main(["Producto", "id:int,nombre:string"])
+
+        self.assertEqual(0, exit_code)
+        generate_project.assert_called_once_with(
+            "Producto", "id:int,nombre:string", "clean",
+            base_package="com.miempresa.x", endpoints=["list"], overwrite=False,
+        )
+
+    @patch("crud_generator.cli.load_conventions", return_value={"architecture": "hexagonal"})
+    @patch("crud_generator.cli.generate_project", return_value="crud-producto-hexagonal")
+    def test_explicit_architecture_flag_wins_over_conventions(self, generate_project, load_conventions):
+        with contextlib.redirect_stdout(io.StringIO()):
+            exit_code = main(
+                ["Producto", "id:int,nombre:string", "--architecture", "layered"]
+            )
+
+        self.assertEqual(0, exit_code)
+        generate_project.assert_called_once_with(
+            "Producto", "id:int,nombre:string", "layered",
+            base_package=None, endpoints=None, overwrite=False,
+        )
+
+    @patch("crud_generator.cli.load_conventions", return_value={"architecture": "hexagonal"})
+    @patch("crud_generator.cli.generate_project_from_json", return_value="crud-producto")
+    def test_json_mode_ignores_conventions_architecture(self, generate_project_from_json, load_conventions):
+        """Una convencion guardada no debe pisar el campo 'architecture' que
+        un fichero JSON concreto pueda traer -- --json siempre pasa None
+        como override salvo que el usuario pase --architecture explicito en
+        esta misma ejecucion (ver generator.generate_project_from_json)."""
+        with contextlib.redirect_stdout(io.StringIO()):
+            exit_code = main(["--json", "definicion.json"])
+
+        self.assertEqual(0, exit_code)
+        generate_project_from_json.assert_called_once_with(
+            "definicion.json", None, overwrite=False
+        )
 
     def test_existing_directory_without_force_is_rejected(self):
         import os

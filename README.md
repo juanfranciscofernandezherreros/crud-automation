@@ -496,6 +496,35 @@ publica nada.
 python .\generate_crud.py --json fondoinversion.json --verify --github
 ```
 
+## Convenciones recordadas (`--remember`)
+
+En modo DSL de texto, la arquitectura, el paquete base y el subconjunto de
+endpoints se pueden fijar una vez y reutilizar en cada generación posterior
+dentro del mismo directorio, en vez de repetirlos cada vez:
+
+```powershell
+python .\generate_crud.py Producto "id:int, nombre:string" --architecture hexagonal --remember
+```
+
+Escribe `crud-automation.conventions.json` en el directorio actual:
+
+```json
+{ "architecture": "hexagonal" }
+```
+
+La siguiente generación **en modo DSL de texto**, en ese mismo directorio,
+ya usa `hexagonal` por defecto sin necesidad de `--architecture`; un
+`--architecture` explícito en esa ejecución sigue ganando. `--json` no lee
+este fichero: ya tiene una fuente de verdad más específica para
+`architecture`/`package`/`endpoints`, el propio fichero JSON, y dejar que
+una convención antigua se colara con la misma prioridad que `--architecture`
+en CLI pisaría un `"architecture"` puesto a propósito en un JSON concreto.
+`--stream`/`--batch` tampoco lo usan — no tienen concepto de arquitectura.
+
+`--remember` **nunca** guarda `--verify` ni `--github`: son acciones reales
+(ejecutar una build, publicar un repositorio) y deben pedirse explícitamente
+en cada ejecución, no activarse solas porque un fichero antiguo lo decía.
+
 ## Publicar en GitHub (`--github`)
 
 Cualquier modo de generación (DSL de texto, `--json`, `--stream`, `--batch`)
@@ -722,6 +751,8 @@ crud_generator/
   stream_templates.py     Plantillas del proyecto Kafka Streams
   generate_service.py     Genera el microservicio Spring Batch coches -> CSV (--batch)
   github_repo.py          Publica un proyecto generado en GitHub via 'gh' (--github)
+  verification.py         Ejecuta y diagnostica 'mvn verify' tras generar (--verify)
+  conventions.py          Memoria local de arquitectura/paquete/endpoints (--remember)
   schema/entity.schema.json  JSON Schema del formato de entrada
 createRepo.py              Wrapper CLI generico de github_repo.py (uso standalone)
 tests/                    Pruebas de la automatizacion
