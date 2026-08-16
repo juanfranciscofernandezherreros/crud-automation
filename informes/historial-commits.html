@@ -227,6 +227,13 @@
     <div class="stat">19 ficheros · <b>+1349 / -801</b> líneas</div>
   </div>
 
+  <div class="commit">
+    <div class="meta"><span class="hash">87446b2</span><span class="date">2026-08-16</span><span class="tag feat">feature</span></div>
+    <h2>feat: --verify ejecuta y diagnostica la build tras generar</h2>
+    <p>Pedido explícito del usuario tras un análisis de qué le falta al generador para acercarse a un "agente autónomo": el paso de mayor valor identificado fue cerrar el ciclo "genera → verifica → corrige". Este commit cierra la primera mitad: <code>--verify</code> ejecuta <code>mvn verify</code> sobre el proyecto recién generado, resume <code>target/surefire-reports/*.txt</code> (tests/fallos/errores/omitidos), y si la build falla imprime una pista cuando el log coincide con un patrón ya visto esta sesión (sin Docker, sin Maven, error de compilación...). Deliberadamente NO parchea el código generado — diagnostica, no corrige; un generador que reescribe su propia salida a partir de heurísticas sobre un log es más riesgo que ayuda. Combinado con <code>--github</code>, la verificación va primero: si falla, no se publica nada. Verificado generando un proyecto real con <code>--verify</code> (resumen de tests correcto contra una build Maven real) además de la suite con <code>subprocess</code> mockeado.</p>
+    <div class="stat">5 ficheros · <b>+360 / -4</b> líneas</div>
+  </div>
+
   <div class="callout">
     Los commits <code>e1fddaf</code> a <code>fa12969</code> son los que motivaron el informe de hallazgos:
     surgieron al usar el generador contra un esquema de producción real en vez de los ejemplos de 3-10 campos
