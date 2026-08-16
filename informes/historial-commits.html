@@ -220,6 +220,13 @@
     <div class="stat">4 ficheros · <b>+1071</b> líneas</div>
   </div>
 
+  <div class="commit fix">
+    <div class="meta"><span class="hash">3d1c1e4</span><span class="date">2026-08-16</span><span class="tag feat">feature</span></div>
+    <h2>feat: --batch genérico, --github, y endpoints personalizados</h2>
+    <p><code>--batch</code> deja de generar el ejemplo "Hello World" y pasa a generar un job Spring Batch genérico y verificable (consulta la tabla <code>coches</code> en H2 sembrada de muestra, normaliza la matrícula y escribe el resultado en CSV; el test compara línea a línea el CSV exacto). Nuevo <code>--github</code> (y <code>createRepo.py</code> reescrito como wrapper genérico, sin el token pegado del script original) publica el proyecto recién generado en un repositorio nuevo vía la CLI <code>gh</code> ya autenticada, sin credenciales en ningún fichero. De paso aparece un <b>fix</b> real: <code>ports_generator.py</code> escribía la CI de hexagonal/clean con el paso de Cucumber (<code>mvn test -Pcucumber -Dtest=RunCucumberTest</code>), pero nunca generaba <code>RunCucumberTest</code>/los steps/el feature para esas arquitecturas — solo <code>layered</code> los tenía, así que ese paso de CI fallaba siempre en todo proyecto hexagonal o clean generado (incluido uno ya publicado, <code>crud-partidobaloncesto-hexagonal</code>, regenerado y corregido aparte). Por último, <code>custom_endpoints</code> permite declarar un endpoint de negocio (path, método HTTP, forma de request y de response) además del CRUD fijo de seis verbos; el generador scaffolds el DTO, el método del controller y un stub de servicio que responde <code>501 Not Implemented</code> hasta que se implementa la lógica real — disponible en las tres arquitecturas, verificado generando y compilando (<code>mvn verify</code>) en las tres y confirmando el 501 con un test MockMvc real.</p>
+    <div class="stat">19 ficheros · <b>+1349 / -801</b> líneas</div>
+  </div>
+
   <div class="callout">
     Los commits <code>e1fddaf</code> a <code>fa12969</code> son los que motivaron el informe de hallazgos:
     surgieron al usar el generador contra un esquema de producción real en vez de los ejemplos de 3-10 campos
