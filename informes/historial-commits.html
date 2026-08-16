@@ -241,6 +241,13 @@
     <div class="stat">5 ficheros · <b>+351 / -5</b> líneas</div>
   </div>
 
+  <div class="commit">
+    <div class="meta"><span class="hash">f0eeea4</span><span class="date">2026-08-16</span><span class="tag feat">feature</span></div>
+    <h2>feat: --wizard, asistente interactivo guiado por preguntas</h2>
+    <p>Tercera y última pieza pedida tras el análisis de "qué le falta al generador para ser más autónomo": <code>--wizard</code> hace en una terminal interactiva las mismas preguntas identificadas en esa sesión (entidad, campos, arquitectura, endpoints, si hace falta un endpoint de negocio propio, paquete), informa de la infraestructura fija de las plantillas (Postgres, GitHub Actions, HTTP Basic, Prometheus/Loki/Grafana) antes de generar, y al final ofrece encadenar <code>--verify</code>/<code>--github</code>/<code>--remember</code> — mismo comportamiento que los dos commits anteriores, nunca dispara build o publicación sin preguntar explícitamente. <code>generate_project()</code> gana un parámetro <code>custom_endpoints</code> opcional para que el asistente pueda generar un endpoint de negocio sin pasar por un fichero JSON intermedio. <code>wizard.py</code> no importa nada de <code>cli.py</code> (evita un ciclo): <code>run_wizard()</code> devuelve los parámetros recogidos y <code>cli.main()</code> termina el flujo post-generación con sus propios helpers ya existentes. Verificado con una ejecución real simulando la terminal (sin mockear <code>generate_project</code>): genera un proyecto hexagonal real con un endpoint personalizado que compila y pasa sus tests con <code>mvn verify</code> real. Suite completa (225 tests + 26 subtests) en verde.</p>
+    <div class="stat">6 ficheros · <b>+437 / -4</b> líneas</div>
+  </div>
+
   <div class="callout">
     Los commits <code>e1fddaf</code> a <code>fa12969</code> son los que motivaron el informe de hallazgos:
     surgieron al usar el generador contra un esquema de producción real en vez de los ejemplos de 3-10 campos
