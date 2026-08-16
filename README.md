@@ -53,6 +53,30 @@ En hexagonal y clean, el servicio de aplicacion es Java puro: no contiene
 anotaciones ni tipos de Spring. Las transacciones quedan en el adaptador de
 persistencia y el wiring en `UseCaseConfiguration`.
 
+## Asistente guiado (`--wizard`)
+
+En vez de construir los flags/JSON a mano, `--wizard` hace las preguntas una
+por una en una terminal interactiva y genera al final:
+
+```powershell
+python .\generate_crud.py --wizard
+```
+
+Pregunta, en orden: entidad, campos (mismo formato `nombre:tipo:regla` del
+DSL de texto, reintentando si hay un error de validación), arquitectura,
+subconjunto de endpoints, si hace falta algún endpoint personalizado
+(`custom_endpoints`, con sus campos de request/response), paquete base, si
+sobrescribir un directorio ya existente, y al final si ejecutar
+`--verify`, publicar con `--github` (nombre de repo y público/privado) y
+guardar la respuesta de arquitectura/paquete/endpoints con `--remember`.
+Antes de esas últimas preguntas, informa de la infraestructura que las
+plantillas ya traen fija (PostgreSQL, GitHub Actions, HTTP Basic + roles,
+Prometheus/Loki/Grafana) — no es configurable desde el asistente, pero
+conviene saberlo antes de generar si no encaja con tu stack real.
+
+Necesita una terminal interactiva; en scripts o CI usa los flags normales
+(`--json`/`--architecture`/...).
+
 ## Definicion por JSON
 
 Para esquemas grandes o generados por herramienta (muchos campos, o cuando el
@@ -753,6 +777,7 @@ crud_generator/
   github_repo.py          Publica un proyecto generado en GitHub via 'gh' (--github)
   verification.py         Ejecuta y diagnostica 'mvn verify' tras generar (--verify)
   conventions.py          Memoria local de arquitectura/paquete/endpoints (--remember)
+  wizard.py               Asistente interactivo guiado por preguntas (--wizard)
   schema/entity.schema.json  JSON Schema del formato de entrada
 createRepo.py              Wrapper CLI generico de github_repo.py (uso standalone)
 tests/                    Pruebas de la automatizacion

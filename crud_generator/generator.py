@@ -45,6 +45,7 @@ def generate_project(
     base_package=None,
     endpoints=None,
     overwrite=False,
+    custom_endpoints=None,
 ):
     entity_name = normalize_entity_name(entity_name)
     architecture = normalize_architecture(architecture)
@@ -55,10 +56,12 @@ def generate_project(
         attrs = parse_attributes(attrs_str)
         layout = build_ports_architectures(base_package)[architecture]
         return generate_ports_project_from_attrs(
-            entity_name, attrs, layout, attrs_str, base_package, endpoints, overwrite
+            entity_name, attrs, layout, attrs_str, base_package, endpoints, overwrite,
+            custom_endpoints=custom_endpoints,
         )
     return generate_layered_project(
-        entity_name, attrs_str, base_package, endpoints, overwrite
+        entity_name, attrs_str, base_package, endpoints, overwrite,
+        custom_endpoints=custom_endpoints,
     )
 
 
@@ -121,11 +124,13 @@ def generate_project_from_json(json_path, architecture_override=None, overwrite=
 
 
 def generate_layered_project(
-    entity_name, attrs_str, base_package=None, endpoints=None, overwrite=False
+    entity_name, attrs_str, base_package=None, endpoints=None, overwrite=False,
+    custom_endpoints=None,
 ):
     attrs = parse_attributes(attrs_str)
     return generate_layered_project_from_attrs(
-        entity_name, attrs, attrs_str, base_package, endpoints, overwrite
+        entity_name, attrs, attrs_str, base_package, endpoints, overwrite,
+        custom_endpoints=custom_endpoints,
     )
 
 

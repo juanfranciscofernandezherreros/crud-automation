@@ -140,6 +140,15 @@ def extract_remember(args):
     return args, remember
 
 
+def extract_wizard(args):
+    args = list(args)
+    wizard = False
+    while "--wizard" in args:
+        args.remove("--wizard")
+        wizard = True
+    return args, wizard
+
+
 def _remember_if_requested(remember, architecture, base_package=None, endpoints=None):
     """Guarda las convenciones efectivas de esta generación (si se pidió
     --remember) para que la próxima ejecución en este mismo directorio ya
@@ -229,6 +238,7 @@ def main(args=None):
         args, force = extract_force(args)
         args, verify = extract_verify(args)
         args, remember = extract_remember(args)
+        args, wizard = extract_wizard(args)
     except DefinitionError as error:
         print(f"Error: {error}", file=sys.stderr)
         return 2
@@ -239,6 +249,20 @@ def main(args=None):
     # gana a ese campo (ver generator.generate_project_from_json) -- dejar
     # que una convencion antigua se cuele con esa misma prioridad pisaria un
     # "architecture" puesto a proposito en un JSON concreto.
+
+    if wizard:
+        from .wizard import run_wizard
+
+        try:
+            (
+                base_dir, verify, push_github, github_repo_name, private, remember,
+                wizard_architecture, wizard_package, wizard_endpoints,
+            ) = run_wizard(conventions)
+        except DefinitionError as error:
+            print(f"Error: {error}", file=sys.stderr)
+            return 2
+        _remember_if_requested(remember, wizard_architecture, wizard_package, wizard_endpoints)
+        return _post_generate(base_dir, verify, push_github, github_repo_name, private)
 
     if batch:
         try:
@@ -293,6 +317,9 @@ def main(args=None):
             "  o: python generate_crud.py --batch [directorio_destino] [--force]"
         )
         print(
+            "  o: python generate_crud.py --wizard  (preguntas guiadas, sin flags)"
+        )
+        print(
             'Ejemplo: python generate_crud.py Producto '
             '"id:int, nombre:string, precio:float"'
         )
@@ -312,6 +339,10 @@ def main(args=None):
             "--remember guarda la arquitectura/paquete/endpoints usados en "
             "crud-automation.conventions.json, para que la próxima ejecución "
             "en este mismo directorio ya los tenga por defecto."
+        )
+        print(
+            "--wizard hace las preguntas (entidad, campos, arquitectura, "
+            "endpoints, verificación, publicación...) en vez de exigir flags."
         )
         return 1
 

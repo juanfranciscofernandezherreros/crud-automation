@@ -297,6 +297,63 @@ class CliTest(unittest.TestCase):
             "definicion.json", None, overwrite=False
         )
 
+    @patch("crud_generator.cli.load_conventions", return_value={})
+    @patch("crud_generator.wizard.run_wizard")
+    def test_wizard_flag_dispatches_to_run_wizard_and_completes_post_generate(
+        self, run_wizard, load_conventions
+    ):
+        run_wizard.return_value = (
+            "crud-producto",  # base_dir
+            False,            # verify
+            False,            # push_github
+            None,             # repo_name
+            False,            # private
+            False,            # remember
+            "layered",        # architecture
+            "com.example.crud",  # package
+            None,             # endpoints
+        )
+        stdout = io.StringIO()
+
+        with contextlib.redirect_stdout(stdout):
+            exit_code = main(["--wizard"])
+
+        self.assertEqual(0, exit_code)
+        run_wizard.assert_called_once_with({})
+
+    @patch("crud_generator.cli.save_conventions")
+    @patch("crud_generator.cli.load_conventions", return_value={})
+    @patch("crud_generator.wizard.run_wizard")
+    def test_wizard_remember_flag_saves_conventions(self, run_wizard, load_conventions, save_conventions):
+        run_wizard.return_value = (
+            "crud-producto-hexagonal", False, False, None, False, True,
+            "hexagonal", "com.miempresa.x", ["list", "get"],
+        )
+        save_conventions.return_value = "crud-automation.conventions.json"
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            exit_code = main(["--wizard"])
+
+        self.assertEqual(0, exit_code)
+        save_conventions.assert_called_once_with(
+            {
+                "architecture": "hexagonal",
+                "package": "com.miempresa.x",
+                "endpoints": ["list", "get"],
+            }
+        )
+
+    @patch("crud_generator.cli.load_conventions", return_value={})
+    @patch("crud_generator.wizard.run_wizard", side_effect=DefinitionError("sin terminal interactiva"))
+    def test_wizard_failure_returns_two(self, run_wizard, load_conventions):
+        stderr = io.StringIO()
+
+        with contextlib.redirect_stderr(stderr):
+            exit_code = main(["--wizard"])
+
+        self.assertEqual(2, exit_code)
+        self.assertIn("sin terminal interactiva", stderr.getvalue())
+
     def test_existing_directory_without_force_is_rejected(self):
         import os
         import tempfile
