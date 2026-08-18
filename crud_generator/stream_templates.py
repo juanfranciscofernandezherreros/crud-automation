@@ -2,6 +2,8 @@
 patrón de referencia: Spring Boot + Spring Kafka + Kafka Streams, filtro
 opcional + agregación con estado (KTable/RocksDB) + join de enriquecimiento."""
 
+import json
+
 from .parsing import to_camel_case
 
 
@@ -27,12 +29,23 @@ def get_pom_xml(project):
     <properties>
         <java.version>21</java.version>
         <lombok.version>1.18.30</lombok.version>
+        <avro.version>1.11.3</avro.version>
+        <confluent.version>7.4.4</confluent.version>
     </properties>
+
+    <repositories>
+        <repository>
+            <id>confluent</id>
+            <url>https://packages.confluent.io/maven/</url>
+        </repository>
+    </repositories>
 
     <dependencies>
         <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter</artifactId></dependency>
         <dependency><groupId>org.springframework.kafka</groupId><artifactId>spring-kafka</artifactId></dependency>
         <dependency><groupId>org.apache.kafka</groupId><artifactId>kafka-streams</artifactId></dependency>
+        <dependency><groupId>org.apache.avro</groupId><artifactId>avro</artifactId><version>${{avro.version}}</version></dependency>
+        <dependency><groupId>io.confluent</groupId><artifactId>kafka-streams-avro-serde</artifactId><version>${{confluent.version}}</version></dependency>
         <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId></dependency>
         <dependency><groupId>org.projectlombok</groupId><artifactId>lombok</artifactId><optional>true</optional></dependency>
 
@@ -44,6 +57,18 @@ def get_pom_xml(project):
 
     <build>
         <plugins>
+            <plugin>
+                <groupId>org.apache.avro</groupId>
+                <artifactId>avro-maven-plugin</artifactId>
+                <version>${{avro.version}}</version>
+                <executions>
+                    <execution>
+                        <phase>generate-sources</phase>
+                        <goals><goal>schema</goal></goals>
+                        <configuration><stringType>String</stringType></configuration>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
@@ -164,6 +189,38 @@ public class {class_name} {{
 """
 
 
+def get_avro_schema(package, class_name, fields, required_fields=None):
+    avro_types = {
+        "string": "string",
+        "double": "double",
+        "int": "int",
+        "long": "long",
+        "boolean": "boolean",
+    }
+    required = set(required_fields or [])
+    schema_fields = []
+    for field in fields:
+        avro_type = avro_types[field["type"]]
+        schema_field = {"name": field["camel_name"]}
+        if field["name"] in required:
+            schema_field["type"] = avro_type
+        else:
+            schema_field["type"] = ["null", avro_type]
+            schema_field["default"] = None
+        schema_fields.append(schema_field)
+
+    return json.dumps(
+        {
+            "type": "record",
+            "name": class_name,
+            "namespace": f"{package}.avro",
+            "fields": schema_fields,
+        },
+        ensure_ascii=False,
+        indent=2,
+    ) + "\n"
+
+
 def _filter_line(definition, input_fields):
     """Siempre descarta tombstones (valor null: p.ej. un borrado logico en el
     topic origen) antes de que el resto de la topologia toque ningun getter —
@@ -183,6 +240,13 @@ def _filter_line(definition, input_fields):
     return f"\n                .filter((k, v) -> {condition})"
 
 
+def _builder_setters(fields, source_name, indent="                        "):
+    return "\n".join(
+        f"{indent}.set{_pascal_case(field['camel_name'])}({source_name}.get{_pascal_case(field['camel_name'])}())"
+        for field in fields
+    )
+
+
 def _get_passthrough_topology(definition):
     """Sin 'processing.group_by_field'/'aggregate_field'/'aggregate_as': lee el
     topic de entrada y reescribe cada evento tal cual (mapeando campo a campo,
@@ -195,39 +259,56 @@ def _get_passthrough_topology(definition):
     output_topic = definition["output_topic"]
     input_fields = definition["input_fields"]
 
-    constructor_args = ", ".join(
-        f"v.get{_pascal_case(f['camel_name'])}()" for f in input_fields
-    )
+    output_setters = _builder_setters(input_fields, "v")
     filter_line = _filter_line(definition, input_fields)
     bean_name = f"{project_class_prefix[0].lower()}{project_class_prefix[1:]}Stream"
 
     return f"""package {package}.topology;
 
-import {package}.model.{input_event};
-import {package}.model.{output_event};
+import {package}.avro.{input_event};
+import {package}.avro.{output_event};
+import io.confluent.kafka.streams.serdes.avro.SpecificAvroSerde;
+import org.apache.avro.specific.SpecificRecord;
 import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.streams.StreamsBuilder;
 import org.apache.kafka.streams.kstream.Consumed;
 import org.apache.kafka.streams.kstream.KStream;
 import org.apache.kafka.streams.kstream.Produced;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.kafka.support.serializer.JsonSerde;
+
+import java.util.Map;
 
 @Configuration
 public class {project_class_prefix}Topology {{
 
+    private final String schemaRegistryUrl;
+
+    public {project_class_prefix}Topology(
+            @Value("${{spring.kafka.streams.properties.schema.registry.url}}") String schemaRegistryUrl) {{
+        this.schemaRegistryUrl = schemaRegistryUrl;
+    }}
+
     @Bean
     public KStream<String, {output_event}> {bean_name}(StreamsBuilder builder) {{
-        JsonSerde<{input_event}> inputSerde = new JsonSerde<>({input_event}.class);
-        JsonSerde<{output_event}> outputSerde = new JsonSerde<>({output_event}.class);
+        SpecificAvroSerde<{input_event}> inputSerde = specificAvroSerde();
+        SpecificAvroSerde<{output_event}> outputSerde = specificAvroSerde();
 
         KStream<String, {output_event}> relayed = builder
                 .stream("{input_topic}", Consumed.with(Serdes.String(), inputSerde)){filter_line}
-                .mapValues(v -> new {output_event}({constructor_args}));
+                .mapValues(v -> {output_event}.newBuilder()
+{output_setters}
+                        .build());
 
         relayed.to("{output_topic}", Produced.with(Serdes.String(), outputSerde));
         return relayed;
+    }}
+
+    private <T extends SpecificRecord> SpecificAvroSerde<T> specificAvroSerde() {{
+        SpecificAvroSerde<T> serde = new SpecificAvroSerde<>();
+        serde.configure(Map.of("schema.registry.url", schemaRegistryUrl), false);
+        return serde;
     }}
 }}
 """
@@ -256,30 +337,40 @@ def get_topology(definition, state_store_name):
 
     filter_line = _filter_line(definition, input_fields)
 
-    constructor_args = ", ".join(
-        f"order.get{_pascal_case(f['camel_name'])}()" for f in input_fields
-    )
+    output_setters = _builder_setters(input_fields, "order")
+    aggregate_as_camel = to_camel_case(definition["aggregate_as"])
 
     return f"""package {package}.topology;
 
-import {package}.model.{input_event};
-import {package}.model.{output_event};
+import {package}.avro.{input_event};
+import {package}.avro.{output_event};
+import io.confluent.kafka.streams.serdes.avro.SpecificAvroSerde;
+import org.apache.avro.specific.SpecificRecord;
 import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.common.utils.Bytes;
 import org.apache.kafka.streams.StreamsBuilder;
 import org.apache.kafka.streams.kstream.*;
 import org.apache.kafka.streams.state.KeyValueStore;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.kafka.support.serializer.JsonSerde;
+
+import java.util.Map;
 
 @Configuration
 public class {project_class_prefix}Topology {{
 
+    private final String schemaRegistryUrl;
+
+    public {project_class_prefix}Topology(
+            @Value("${{spring.kafka.streams.properties.schema.registry.url}}") String schemaRegistryUrl) {{
+        this.schemaRegistryUrl = schemaRegistryUrl;
+    }}
+
     @Bean
     public KStream<String, {output_event}> {project_class_prefix[0].lower()}{project_class_prefix[1:]}Stream(StreamsBuilder builder) {{
-        JsonSerde<{input_event}> inputSerde = new JsonSerde<>({input_event}.class);
-        JsonSerde<{output_event}> outputSerde = new JsonSerde<>({output_event}.class);
+        SpecificAvroSerde<{input_event}> inputSerde = specificAvroSerde();
+        SpecificAvroSerde<{output_event}> outputSerde = specificAvroSerde();
 
         KStream<String, {input_event}> baseStream = builder
                 .stream("{input_topic}", Consumed.with(Serdes.String(), inputSerde)){filter_line};
@@ -301,12 +392,21 @@ public class {project_class_prefix}Topology {{
 
         KStream<String, {output_event}> enrichedStream = repartitioned.join(
                 totals,
-                (order, total) -> new {output_event}({constructor_args}, total),
+                (order, total) -> {output_event}.newBuilder()
+{output_setters}
+                        .set{_pascal_case(aggregate_as_camel)}(total)
+                        .build(),
                 Joined.with(Serdes.String(), inputSerde, Serdes.Double())
         );
 
         enrichedStream.to("{output_topic}", Produced.with(Serdes.String(), outputSerde));
         return enrichedStream;
+    }}
+
+    private <T extends SpecificRecord> SpecificAvroSerde<T> specificAvroSerde() {{
+        SpecificAvroSerde<T> serde = new SpecificAvroSerde<>();
+        serde.configure(Map.of("schema.registry.url", schemaRegistryUrl), false);
+        return serde;
     }}
 }}
 """
@@ -322,6 +422,7 @@ def get_application_yml(project, input_topic_dummy=None):
       application-id: {project}-app-v1
       properties:
         state.dir: ${{KAFKA_STREAMS_STATE_DIR:/tmp/kafka-streams/{project}}}
+        schema.registry.url: ${{SCHEMA_REGISTRY_URL:http://localhost:8081}}
 """
 
 
@@ -348,14 +449,27 @@ services:
       - KAFKA_CONTROLLER_QUORUM_VOTERS=1@localhost:9093
       - KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1
 
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.4.4
+    ports:
+      - "8081:8081"
+    environment:
+      - SCHEMA_REGISTRY_HOST_NAME=schema-registry
+      - SCHEMA_REGISTRY_LISTENERS=http://0.0.0.0:8081
+      - SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS=PLAINTEXT://kafka:9092
+    depends_on:
+      - kafka
+
   app:
     build: .
     ports:
       - "8080:8080"
     environment:
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - SCHEMA_REGISTRY_URL=http://schema-registry:8081
     depends_on:
       - kafka
+      - schema-registry
 """
 
 
@@ -392,25 +506,26 @@ def _sample_value(field, value):
     return str(value)
 
 
-def _build_event_args(input_fields, overrides, sample_field_defaults=None):
+def _build_event_expression(event_name, input_fields, overrides, sample_field_defaults=None):
     values = dict(sample_field_defaults or {})
     values.update(overrides)
-    args = []
+    setters = []
     for field in input_fields:
         if field["name"] in values:
-            args.append(_sample_value(field, values[field["name"]]))
+            value = _sample_value(field, values[field["name"]])
         elif field["type"] == "string":
-            args.append(f'"{field["name"]}-1"')
+            value = f'"{field["name"]}-1"'
         elif field["type"] == "double":
-            args.append("0.0")
+            value = "0.0"
         elif field["type"] in {"int", "long"}:
-            args.append("0")
+            value = "0"
         else:
-            args.append("false")
-    return ", ".join(args)
+            value = "false"
+        setters.append(f"                .set{_pascal_case(field['camel_name'])}({value})")
+    return f"{event_name}.newBuilder()\n" + "\n".join(setters) + "\n                .build()"
 
 
-def _filter_test_case(definition, input_event, build_event_args):
+def _filter_test_case(definition, input_event, build_event):
     if not definition["filter_field"]:
         return ""
     below_threshold = (
@@ -423,7 +538,7 @@ def _filter_test_case(definition, input_event, build_event_args):
     @Test
     @DisplayName("Filtra los eventos que no cumplen la condicion configurada")
     void filterTest() {{
-        inputTopic.pipeInput("K1", new {input_event}({build_event_args(filter_overrides)}));
+        inputTopic.pipeInput("K1", {build_event(filter_overrides)});
 
         assertTrue(outputTopic.isEmpty());
     }}
@@ -440,16 +555,22 @@ def _get_passthrough_topology_test(definition):
     input_fields = definition["input_fields"]
     stream_bean = f"{project_class_prefix[0].lower()}{project_class_prefix[1:]}Stream"
 
-    def build_event_args(overrides):
-        return _build_event_args(input_fields, overrides)
+    def build_event(overrides):
+        return _build_event_expression(input_event, input_fields, overrides)
 
-    filter_test = _filter_test_case(definition, input_event, build_event_args)
-    event_args = build_event_args({})
+    def build_output(overrides):
+        return _build_event_expression(output_event, input_fields, overrides)
+
+    filter_test = _filter_test_case(definition, input_event, build_event)
+    input_value = build_event({})
+    output_value = build_output({})
 
     return f"""package {package}.topology;
 
-import {package}.model.{input_event};
-import {package}.model.{output_event};
+import {package}.avro.{input_event};
+import {package}.avro.{output_event};
+import io.confluent.kafka.streams.serdes.avro.SpecificAvroSerde;
+import org.apache.avro.specific.SpecificRecord;
 import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.streams.StreamsBuilder;
 import org.apache.kafka.streams.StreamsConfig;
@@ -460,13 +581,15 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.kafka.support.serializer.JsonSerde;
 
+import java.util.Map;
 import java.util.Properties;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 class {project_class_prefix}TopologyTest {{
+
+    private static final String SCHEMA_REGISTRY_URL = "mock://{definition['project']}-test";
 
     private TopologyTestDriver testDriver;
     private TestInputTopic<String, {input_event}> inputTopic;
@@ -475,7 +598,7 @@ class {project_class_prefix}TopologyTest {{
     @BeforeEach
     void setup() {{
         StreamsBuilder builder = new StreamsBuilder();
-        new {project_class_prefix}Topology().{stream_bean}(builder);
+        new {project_class_prefix}Topology(SCHEMA_REGISTRY_URL).{stream_bean}(builder);
 
         Properties props = new Properties();
         props.put(StreamsConfig.APPLICATION_ID_CONFIG, "test-{definition['project']}");
@@ -484,8 +607,8 @@ class {project_class_prefix}TopologyTest {{
 
         testDriver = new TopologyTestDriver(builder.build(), props);
 
-        JsonSerde<{input_event}> inputSerde = new JsonSerde<>({input_event}.class);
-        JsonSerde<{output_event}> outputSerde = new JsonSerde<>({output_event}.class);
+        SpecificAvroSerde<{input_event}> inputSerde = specificAvroSerde();
+        SpecificAvroSerde<{output_event}> outputSerde = specificAvroSerde();
 
         inputTopic = testDriver.createInputTopic(
                 "{input_topic}", Serdes.String().serializer(), inputSerde.serializer());
@@ -503,9 +626,9 @@ class {project_class_prefix}TopologyTest {{
     @Test
     @DisplayName("Reenvia el evento sin cambios al topic de salida")
     void relaysEventUnchanged() {{
-        inputTopic.pipeInput("K1", new {input_event}({event_args}));
+        inputTopic.pipeInput("K1", {input_value});
 
-        {output_event} expected = new {output_event}({event_args});
+        {output_event} expected = {output_value};
         assertEquals(expected, outputTopic.readValue());
     }}
 
@@ -515,6 +638,12 @@ class {project_class_prefix}TopologyTest {{
         inputTopic.pipeInput("K1", null);
 
         assertTrue(outputTopic.isEmpty());
+    }}
+
+    private <T extends SpecificRecord> SpecificAvroSerde<T> specificAvroSerde() {{
+        SpecificAvroSerde<T> serde = new SpecificAvroSerde<>();
+        serde.configure(Map.of("schema.registry.url", SCHEMA_REGISTRY_URL), false);
+        return serde;
     }}
 }}
 """
@@ -542,17 +671,21 @@ def get_topology_test(definition, state_store_name):
         definition["aggregate_field"]: 50.0,
     }
 
-    def build_event_args(overrides):
-        return _build_event_args(input_fields, overrides, sample_field_defaults)
+    def build_event(overrides):
+        return _build_event_expression(
+            input_event, input_fields, overrides, sample_field_defaults
+        )
 
     stream_bean = f"{project_class_prefix[0].lower()}{project_class_prefix[1:]}Stream"
 
-    filter_test = _filter_test_case(definition, input_event, build_event_args)
+    filter_test = _filter_test_case(definition, input_event, build_event)
 
     return f"""package {package}.topology;
 
-import {package}.model.{input_event};
-import {package}.model.{output_event};
+import {package}.avro.{input_event};
+import {package}.avro.{output_event};
+import io.confluent.kafka.streams.serdes.avro.SpecificAvroSerde;
+import org.apache.avro.specific.SpecificRecord;
 import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.streams.*;
 import org.apache.kafka.streams.state.KeyValueStore;
@@ -560,13 +693,15 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.kafka.support.serializer.JsonSerde;
 
+import java.util.Map;
 import java.util.Properties;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 class {project_class_prefix}TopologyTest {{
+
+    private static final String SCHEMA_REGISTRY_URL = "mock://{definition['project']}-test";
 
     private TopologyTestDriver testDriver;
     private TestInputTopic<String, {input_event}> inputTopic;
@@ -576,7 +711,7 @@ class {project_class_prefix}TopologyTest {{
     @BeforeEach
     void setup() {{
         StreamsBuilder builder = new StreamsBuilder();
-        new {project_class_prefix}Topology().{stream_bean}(builder);
+        new {project_class_prefix}Topology(SCHEMA_REGISTRY_URL).{stream_bean}(builder);
 
         Properties props = new Properties();
         props.put(StreamsConfig.APPLICATION_ID_CONFIG, "test-{definition['project']}");
@@ -586,8 +721,8 @@ class {project_class_prefix}TopologyTest {{
 
         testDriver = new TopologyTestDriver(builder.build(), props);
 
-        JsonSerde<{input_event}> inputSerde = new JsonSerde<>({input_event}.class);
-        JsonSerde<{output_event}> outputSerde = new JsonSerde<>({output_event}.class);
+        SpecificAvroSerde<{input_event}> inputSerde = specificAvroSerde();
+        SpecificAvroSerde<{output_event}> outputSerde = specificAvroSerde();
 
         inputTopic = testDriver.createInputTopic(
                 "{input_topic}", Serdes.String().serializer(), inputSerde.serializer());
@@ -606,11 +741,11 @@ class {project_class_prefix}TopologyTest {{
     @Test
     @DisplayName("Agrega correctamente el total para una misma clave")
     void aggregationTest() {{
-        inputTopic.pipeInput("K1", new {input_event}({build_event_args({})}));
+        inputTopic.pipeInput("K1", {build_event({})});
         {output_event} first = outputTopic.readValue();
         assertEquals(50.0, first.{aggregate_as_getter}());
 
-        inputTopic.pipeInput("K2", new {input_event}({build_event_args({definition['aggregate_field']: 30.0})}));
+        inputTopic.pipeInput("K2", {build_event({definition['aggregate_field']: 30.0})});
         {output_event} second = outputTopic.readValue();
         assertEquals(80.0, second.{aggregate_as_getter}());
 
@@ -620,12 +755,12 @@ class {project_class_prefix}TopologyTest {{
     @Test
     @DisplayName("Mantiene totales independientes por clave")
     void multiKeyTest() {{
-        inputTopic.pipeInput("K1", new {input_event}({build_event_args({})}));
+        inputTopic.pipeInput("K1", {build_event({})});
         inputTopic.pipeInput(
-                "K2", new {input_event}({build_event_args({definition['group_by_field']: 'C2', definition['aggregate_field']: 200.0})}));
+                "K2", {build_event({definition['group_by_field']: 'C2', definition['aggregate_field']: 200.0})});
         outputTopic.readValuesToList();
 
-        inputTopic.pipeInput("K3", new {input_event}({build_event_args({definition['aggregate_field']: 25.0})}));
+        inputTopic.pipeInput("K3", {build_event({definition['aggregate_field']: 25.0})});
         {output_event} last = outputTopic.readValue();
 
         assertEquals("C1", last.{group_by_getter}());
@@ -635,7 +770,7 @@ class {project_class_prefix}TopologyTest {{
     @Test
     @DisplayName("Asigna la clave UNKNOWN cuando el campo de agrupacion es null")
     void nullGroupByKeyTest() {{
-        inputTopic.pipeInput("K1", new {input_event}({build_event_args({definition['group_by_field']: None})}));
+        inputTopic.pipeInput("K1", {build_event({definition['group_by_field']: None})});
 
         assertNotNull(stateStore.get("UNKNOWN"));
     }}
@@ -646,6 +781,12 @@ class {project_class_prefix}TopologyTest {{
         inputTopic.pipeInput("K1", null);
 
         assertTrue(outputTopic.isEmpty());
+    }}
+
+    private <T extends SpecificRecord> SpecificAvroSerde<T> specificAvroSerde() {{
+        SpecificAvroSerde<T> serde = new SpecificAvroSerde<>();
+        serde.configure(Map.of("schema.registry.url", SCHEMA_REGISTRY_URL), false);
+        return serde;
     }}
 }}
 """

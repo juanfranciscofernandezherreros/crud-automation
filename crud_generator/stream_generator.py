@@ -32,6 +32,7 @@ def generate_stream_project(json_path, overwrite=False):
     java_base = f"{base_dir}/src/main/java/{package_path}"
     test_base = f"{base_dir}/src/test/java/{package_path}"
     resources = f"{base_dir}/src/main/resources"
+    avro_base = f"{base_dir}/src/main/avro"
     state_store_name = f"{project}-totals-store"
 
     write_file(f"{base_dir}/pom.xml", stream_templates.get_pom_xml(project))
@@ -55,13 +56,6 @@ def generate_stream_project(json_path, overwrite=False):
             definition["input_topic"], definition["output_topic"],
         ),
     )
-    write_file(
-        f"{java_base}/model/{definition['input_event']}.java",
-        stream_templates.get_model(
-            package, definition["input_event"], definition["input_fields"],
-            with_json_property=True,
-        ),
-    )
     is_passthrough = definition["group_by_field"] is None
     if is_passthrough:
         output_fields = definition["input_fields"]
@@ -76,9 +70,18 @@ def generate_stream_project(json_path, overwrite=False):
             }
         ]
     write_file(
-        f"{java_base}/model/{definition['output_event']}.java",
-        stream_templates.get_model(
-            package, definition["output_event"], output_fields, with_json_property=False
+        f"{avro_base}/{definition['input_event']}.avsc",
+        stream_templates.get_avro_schema(
+            package, definition["input_event"], definition["input_fields"]
+        ),
+    )
+    write_file(
+        f"{avro_base}/{definition['output_event']}.avsc",
+        stream_templates.get_avro_schema(
+            package,
+            definition["output_event"],
+            output_fields,
+            required_fields=[] if is_passthrough else [definition["aggregate_as"]],
         ),
     )
     write_file(

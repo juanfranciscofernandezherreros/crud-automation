@@ -110,8 +110,9 @@ class GenerateStreamProjectTest(unittest.TestCase):
                 self.assertTrue(
                     (java_base / "config/KafkaStreamsConfig.java").is_file()
                 )
-                self.assertTrue((java_base / "model/Order.java").is_file())
-                self.assertTrue((java_base / "model/OrderWithTotal.java").is_file())
+                avro_base = Path(base_dir) / "src/main/avro"
+                self.assertTrue((avro_base / "Order.avsc").is_file())
+                self.assertTrue((avro_base / "OrderWithTotal.avsc").is_file())
                 self.assertTrue(
                     (java_base / "topology/SalesStreamsTopology.java").is_file()
                 )
@@ -126,12 +127,15 @@ class GenerateStreamProjectTest(unittest.TestCase):
             _write_definition(definition_path)
             with working_directory(tmp):
                 base_dir = generate_stream_project(definition_path)
-                model = Path(
-                    base_dir, "src/main/java/com/example/sales/model/OrderWithTotal.java"
-                ).read_text(encoding="utf-8")
+                schema = json.loads(
+                    Path(base_dir, "src/main/avro/OrderWithTotal.avsc").read_text(
+                        encoding="utf-8"
+                    )
+                )
 
-                self.assertIn("private Double totalAmount;", model)
-                self.assertIn("private String orderId;", model)
+                fields = {field["name"]: field["type"] for field in schema["fields"]}
+                self.assertEqual("double", fields["totalAmount"])
+                self.assertEqual(["null", "string"], fields["orderId"])
 
     def test_refuses_to_overwrite_an_existing_directory_without_force(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -162,14 +166,15 @@ class GenerateStreamProjectPassthroughTest(unittest.TestCase):
             _write_definition(definition_path, PASSTHROUGH_DEFINITION)
             with working_directory(tmp):
                 base_dir = generate_stream_project(definition_path)
-                java_base = Path(base_dir, "src/main/java/com/example/crypto")
-                model = (java_base / "model/CryptoPriceRelayed.java").read_text(encoding="utf-8")
+                schema = json.loads(
+                    Path(base_dir, "src/main/avro/CryptoPriceRelayed.avsc").read_text(
+                        encoding="utf-8"
+                    )
+                )
 
-                self.assertIn("private String symbol;", model)
-                self.assertIn("private Double priceUsd;", model)
-                self.assertIn("private Double volume;", model)
-                # A diferencia del modo con agregacion, no se añade ningun campo extra.
-                self.assertNotIn("total", model.lower())
+                field_names = [field["name"] for field in schema["fields"]]
+                self.assertEqual(["symbol", "priceUsd", "volume"], field_names)
+                self.assertNotIn("total", " ".join(field_names).lower())
 
     def test_topology_has_no_state_store_or_join(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -183,6 +188,7 @@ class GenerateStreamProjectPassthroughTest(unittest.TestCase):
 
                 self.assertIn(".mapValues(", topology)
                 self.assertIn(".filter((k, v) -> v != null)", topology)
+                self.assertIn("SpecificAvroSerde", topology)
                 self.assertNotIn("Materialized", topology)
                 self.assertNotIn(".join(", topology)
                 self.assertNotIn("KGroupedStream", topology)
