@@ -31,6 +31,8 @@ spec:
             branch: main
           - repo: crud-ventas
             branch: main
+          - repo: google-trends-scraper
+            branch: main
   template:
     metadata:
       name: "{{.repo}}"
