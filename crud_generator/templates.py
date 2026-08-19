@@ -1536,11 +1536,16 @@ public class CucumberSpringConfiguration {
 """
 
 
-def get_cucumber_feature(entity_name, entity_lower, endpoints, has_reference):
+def get_cucumber_feature(entity_name, entity_lower, endpoints, has_reference, has_required_fields):
     """has_reference: si la entidad tiene un campo 'reference', se omite el
     escenario de alta valida (necesitaria crear antes la entidad referenciada,
     fuera del alcance de este generador) y solo se cubren list/validacion/404,
-    que no dependen de otra entidad ya existente en la base de datos."""
+    que no dependen de otra entidad ya existente en la base de datos.
+
+    has_required_fields: si la entidad no tiene ningun campo obligatorio, un
+    cuerpo vacio es una entrada valida (la API responde 201, no 400), asi que
+    el escenario de alta sin campos obligatorios se omite para no generar un
+    test que siempre falla contra el propio comportamiento correcto de la API."""
     endpoints = set(endpoints)
     scenarios = []
     if "list" in endpoints:
@@ -1555,7 +1560,7 @@ def get_cucumber_feature(entity_name, entity_lower, endpoints, has_reference):
     Then la respuesta tiene estado 201
     When se consulta el {entity_lower} creado
     Then la respuesta tiene estado 200""")
-    if "create" in endpoints:
+    if "create" in endpoints and has_required_fields:
         scenarios.append(f"""
   Scenario: Crear un {entity_lower} sin campos obligatorios
     When se crea un {entity_lower} sin campos obligatorios
@@ -1599,8 +1604,9 @@ def get_cucumber_steps(
         if (response.statusCode() == 201) {{
             createdId = response.jsonPath().getInt("id");
         }}
-    }}
-
+    }}""")
+        if has_required_fields:
+            steps.append(f"""
     @When("se crea un {entity_lower} sin campos obligatorios")
     public void seCreaUn{entity_name}SinCamposObligatorios() {{
         response = authenticated()
