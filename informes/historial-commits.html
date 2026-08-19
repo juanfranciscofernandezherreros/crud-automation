@@ -269,6 +269,13 @@
     <div class="stat">4 ficheros · <b>+32 / -9</b> líneas</div>
   </div>
 
+  <div class="commit">
+    <div class="meta"><span class="hash">2668665</span><span class="date">2026-08-19</span><span class="tag feat">feature</span></div>
+    <h2>feat: orchestrate_crud.py engancha el microservicio generado a Argo CD</h2>
+    <p>Petición directa: que el orquestador (generar + publicar en GitHub) tenga un tercer paso que registre el repo recién publicado en Argo CD, en vez de hacerlo a mano como se hizo con <code>crud-dividendos-hexagonal</code>/<code>crud-transferencia-hexagonal</code>. Nuevo módulo <code>crud_generator/gitops.py</code>: genera <code>k8s/*.yaml</code> (namespace, secret, Postgres Service+StatefulSet, Service+Deployment de la app, kustomization) y <code>.github/workflows/gitops.yml</code> (build+push a GHCR y actualización de <code>deployment.yaml</code> con el sha), replicando el patrón ya usado a mano en esos repos; el nombre de la base de datos se lee del <code>docker-compose.yml</code> ya generado en vez de re-derivarlo, para que quede garantizado en sync con lo que la app espera. <code>orchestrate_crud.py</code> encadena ahora: generar → escribir esos manifiestos en el proyecto (para que el primer commit del repo ya los incluya) → publicar en GitHub → correr <code>scripts/update_applicationset.py</code> (el mismo script del workflow programado "Actualizar ApplicationSet") y, si <code>argocd/applicationset.yaml</code> cambió, comitearlo y empujarlo a este repo. Nuevo flag <code>--skip-argocd</code>; con <code>--private</code> se avisa y se salta el paso 3 porque el descubrimiento solo indexa repos públicos. Verificado con una ejecución real de punta a punta (entidad <code>ArgocdSmoke</code>, hexagonal): <code>mvn verify</code> en verde, <code>crud-argocdsmoke-hexagonal</code> publicado con <code>k8s/</code> y <code>gitops.yml</code> ya en el primer commit, su workflow "GitOps image" construyó y publicó la imagen en GHCR y actualizó <code>k8s/deployment.yaml</code> con el sha real, y <code>update_applicationset.py</code> descubrió el repo y agregó su entrada a <code>argocd/applicationset.yaml</code>. Suite completa en verde (236 tests + 27 subtests, incluidos los 10 nuevos de <code>tests/test_gitops.py</code>).</p>
+    <div class="stat">3 ficheros · <b>+649</b> líneas</div>
+  </div>
+
   <div class="callout">
     Los commits <code>e1fddaf</code> a <code>fa12969</code> son los que motivaron el informe de hallazgos:
     surgieron al usar el generador contra un esquema de producción real en vez de los ejemplos de 3-10 campos
