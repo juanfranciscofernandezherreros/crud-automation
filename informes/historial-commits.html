@@ -290,6 +290,13 @@
     <div class="stat">2 ficheros · <b>+43</b> líneas</div>
   </div>
 
+  <div class="commit">
+    <div class="meta"><span class="hash">73ed76a</span><span class="date">2026-08-19</span><span class="tag chore">revert</span></div>
+    <h2>revert: quita la integración con Argo CD/Kubernetes de orchestrate_crud</h2>
+    <p>Petición directa del usuario: este proyecto solo debe generar el microservicio y publicarlo en GitHub, compilando bien — nada de Argo CD ni de <code>kubectl</code>. Borra <code>crud_generator/gitops.py</code> y <code>tests/test_gitops.py</code> (generaban <code>k8s/*.yaml</code> + <code>.github/workflows/gitops.yml</code> para el proyecto generado) y revierte <code>orchestrate_crud.py</code> a sus dos pasos originales: <code>generate_crud.py</code> → <code>createRepo.py</code>. Se retiran el paso 3 (<code>scripts/update_applicationset.py</code>) y el paso 4 (sondeo con <code>kubectl</code> del <code>Application</code> en Argo CD) añadidos en <code>2668665</code>, junto con los flags que solo tenían sentido con ellos. No se toca <code>argocd/</code>, <code>bootstrap/</code> ni <code>scripts/update_applicationset.py</code>: son infraestructura previa a esta sesión que también gestiona <code>photos-sync</code> y <code>renta-form</code>, servicios reales ajenos a este cambio — borrarlos podría hacer que Argo CD los pruneara, dado que la Application <code>crud-platform</code> vigila esa carpeta entera con <code>prune: true</code>.</p>
+    <div class="stat">3 ficheros · <b>+14 / -550</b> líneas</div>
+  </div>
+
   <div class="callout">
     Los commits <code>e1fddaf</code> a <code>fa12969</code> son los que motivaron el informe de hallazgos:
     surgieron al usar el generador contra un esquema de producción real en vez de los ejemplos de 3-10 campos
