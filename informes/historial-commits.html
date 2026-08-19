@@ -248,6 +248,13 @@
     <div class="stat">6 ficheros · <b>+437 / -4</b> líneas</div>
   </div>
 
+  <div class="commit">
+    <div class="meta"><span class="hash">4167e2b</span><span class="date">2026-08-19</span><span class="tag feat">feature</span></div>
+    <h2>feat: onboard crud-dividendos-hexagonal en el ecosistema Argo CD</h2>
+    <p>Petición directa del usuario: generar un microservicio nuevo ("dividendos") con arquitectura hexagonal usando el generador Python, publicarlo como repositorio y engancharlo a todo el ecosistema ya desplegado. La entidad <code>Dividendos</code> (ticker, empresa, importe_por_accion, moneda, numero_acciones, fecha_ex_dividendo, fecha_pago, tipo, estado) se generó con <code>--json examples/dividendos.json --architecture hexagonal</code>, se verificó con <code>--verify</code> (12 tests, 0 fallos) y se publicó con <code>--github crud-dividendos-hexagonal</code>. El generador no produce manifiestos de Kubernetes ni el workflow que construye y publica la imagen a GHCR, así que ambos se añadieron a mano en el repo nuevo replicando el patrón ya probado de <code>crud-transferencia-hexagonal</code> (Deployment + Service + Postgres StatefulSet + Secret, y <code>.github/workflows/gitops.yml</code> que hace build/push a GHCR y actualiza <code>k8s/deployment.yaml</code> con un commit <code>chore(gitops)</code>). Este commit añade la última pieza: la entrada en el <code>ApplicationSet</code> de <code>crud-repositories</code> para que Argo CD sincronice automáticamente su carpeta <code>k8s/</code>.</p>
+    <div class="stat">2 ficheros · <b>+77 / -0</b> líneas</div>
+  </div>
+
   <div class="callout">
     Los commits <code>e1fddaf</code> a <code>fa12969</code> son los que motivaron el informe de hallazgos:
     surgieron al usar el generador contra un esquema de producción real en vez de los ejemplos de 3-10 campos
