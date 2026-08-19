@@ -276,6 +276,13 @@
     <div class="stat">3 ficheros · <b>+649</b> líneas</div>
   </div>
 
+  <div class="commit">
+    <div class="meta"><span class="hash">0c42687</span><span class="date">2026-08-19</span><span class="tag chore">chore</span></div>
+    <h2>chore: retira los 12 microservicios crud-* del ApplicationSet</h2>
+    <p>Petición directa del usuario: borrar del repositorio todos los microservicios <code>crud-*</code> autogenerados excepto <code>crud-automation</code> (los 12 repos publicados hasta ahora con el generador y enganchados al Argo CD real: <code>crud-articulo</code>, <code>crud-catalogo</code>, <code>crud-crypto-relay</code>, <code>crud-dividendos-hexagonal</code>, <code>crud-empleado-clean</code>, <code>crud-fondoinversion-hexagonal</code>, <code>crud-partidobaloncesto-hexagonal</code>, <code>crud-producto</code>, <code>crud-sales-streams</code>, <code>crud-sensores-stream</code>, <code>crud-transferencia-hexagonal</code>, <code>crud-ventas</code>; se excluyó <code>crud-simple</code>, privado y anterior a este generador). Como <code>syncPolicy.automated.prune</code> está a <code>true</code>, el ApplicationSet se vació primero (<code>elements: []</code>) y se empujó por separado, para que Argo CD dejara de rastrear esos repos de forma controlada <em>antes</em> de borrarlos en GitHub, en vez de dejar que Argo CD encontrara los repos desaparecidos a mitad de una sincronización.</p>
+    <div class="stat">1 fichero · <b>+1 / -25</b> líneas</div>
+  </div>
+
   <div class="callout">
     Los commits <code>e1fddaf</code> a <code>fa12969</code> son los que motivaron el informe de hallazgos:
     surgieron al usar el generador contra un esquema de producción real en vez de los ejemplos de 3-10 campos
