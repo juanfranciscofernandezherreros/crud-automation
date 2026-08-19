@@ -283,6 +283,13 @@
     <div class="stat">1 fichero · <b>+1 / -25</b> líneas</div>
   </div>
 
+  <div class="commit fix">
+    <div class="meta"><span class="hash">4bc9c8a</span><span class="date">2026-08-19</span><span class="tag fix">fix</span></div>
+    <h2>fix: push_to_github deja el repo nuevo con permisos de escritura para Actions</h2>
+    <p>Cada repo creado con <code>gh repo create</code> nace con <code>default_workflow_permissions=read</code>, lo que le niega a <code>GITHUB_TOKEN</code> el permiso de escribir aunque el workflow lo pida explícitamente (<code>permissions: packages: write</code>). Con eso, cualquier workflow que publique en GHCR o comitee de vuelta — como <code>.github/workflows/gitops.yml</code>, que genera <code>crud_generator/gitops.py</code> — fallaba siempre en el primer push con <code>denied: permission_denied: write_package</code>, y había que arreglarlo a mano en cada repo nuevo. <code>push_to_github()</code> ahora deja el repo en modo escritura justo después de crearlo (<code>gh api -X PUT .../actions/permissions/workflow</code>), usando el placeholder <code>{owner}</code> de <code>gh api</code> resuelto desde el remote <code>origin</code> que <code>gh repo create --push</code> ya deja configurado en el propio directorio del proyecto. Como <code>createRepo.py</code> y <code>orchestrate_crud.py</code> delegan enteramente en esta función, ambos quedan arreglados sin tocarlos. Verificado con una publicación real (<code>crud-dividendos-hexagonal</code>, regenerado tras el fix): el repo nuevo ya nace con el permiso correcto sin intervención manual, y su workflow "GitOps image" construye y publica la imagen en GHCR sin el error. Suite completa en verde (237 tests + 27 subtests).</p>
+    <div class="stat">2 ficheros · <b>+43</b> líneas</div>
+  </div>
+
   <div class="callout">
     Los commits <code>e1fddaf</code> a <code>fa12969</code> son los que motivaron el informe de hallazgos:
     surgieron al usar el generador contra un esquema de producción real en vez de los ejemplos de 3-10 campos
