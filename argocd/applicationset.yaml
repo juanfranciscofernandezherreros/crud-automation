@@ -8,31 +8,7 @@ spec:
   goTemplateOptions: ["missingkey=error"]
   generators:
     - list:
-        elements:
-          - repo: crud-articulo
-            branch: main
-          - repo: crud-catalogo
-            branch: main
-          - repo: crud-crypto-relay
-            branch: main
-          - repo: crud-dividendos-hexagonal
-            branch: main
-          - repo: crud-empleado-clean
-            branch: main
-          - repo: crud-fondoinversion-hexagonal
-            branch: main
-          - repo: crud-partidobaloncesto-hexagonal
-            branch: main
-          - repo: crud-producto
-            branch: main
-          - repo: crud-sales-streams
-            branch: main
-          - repo: crud-sensores-stream
-            branch: main
-          - repo: crud-transferencia-hexagonal
-            branch: main
-          - repo: crud-ventas
-            branch: main
+        elements: []
   template:
     metadata:
       name: "{{.repo}}"
