@@ -255,6 +255,13 @@
     <div class="stat">2 ficheros · <b>+77 / -0</b> líneas</div>
   </div>
 
+  <div class="commit fix">
+    <div class="meta"><span class="hash">7a0d562</span><span class="date">2026-08-19</span><span class="tag fix">fix</span></div>
+    <h2>fix: no dupliques la "s" al pluralizar entidades ya en plural</h2>
+    <p>El usuario detectó en vivo el bug tras generar y desplegar <code>crud-dividendos-hexagonal</code>: la tabla real de Postgres había quedado creada como <code>dividendoss</code> y la ruta REST como <code>/api/dividendoss</code>. Las seis plantillas afectadas (layered, hexagonal, clean, más <code>generator.py</code>/<code>ports_generator.py</code>/<code>documentation.py</code>) construían el plural anexando un literal <code>"s"</code> a <code>entity_lower</code> sin comprobar si el nombre ya terminaba en una — nunca se había notado porque ninguna entidad generada hasta ahora terminaba en "s" (Cliente, Pedido, Producto...). Nuevo helper <code>parsing.pluralize()</code> centraliza la regla y corrige también <code>reference_table</code>, con el mismo problema para entidades referenciadas ya en plural. Verificado regenerando el proyecto real (tabla, índices, <code>@Table</code> y <code>@RequestMapping</code> ya en <code>dividendos</code> sin doblar la "s") y con la suite completa del generador en verde (225 tests + 27 subtests).</p>
+    <div class="stat">7 ficheros · <b>+59 / -43</b> líneas</div>
+  </div>
+
   <div class="callout">
     Los commits <code>e1fddaf</code> a <code>fa12969</code> son los que motivaron el informe de hallazgos:
     surgieron al usar el generador contra un esquema de producción real en vez de los ejemplos de 3-10 campos
