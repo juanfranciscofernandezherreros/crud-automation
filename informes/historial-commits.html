@@ -262,6 +262,13 @@
     <div class="stat">7 ficheros · <b>+59 / -43</b> líneas</div>
   </div>
 
+  <div class="commit fix">
+    <div class="meta"><span class="hash">c245789</span><span class="date">2026-08-19</span><span class="tag fix">fix</span></div>
+    <h2>fix: omite el escenario Cucumber de alta sin campos obligatorios cuando la entidad no tiene ninguno</h2>
+    <p>Cuando una entidad no tiene ningún campo obligatorio, un body vacío en el alta es una entrada válida (la API responde 201, no 400). <code>get_cucumber_feature()</code> generaba siempre el escenario "crear sin campos obligatorios → 400" para el microservicio generado, produciendo un test que fallaba contra el propio comportamiento correcto de la API. Ahora recibe un flag <code>has_required_fields</code> (propagado desde <code>generator.py</code> y <code>ports_generator.py</code> vía <code>has_required_input(attrs)</code>) y omite tanto el escenario como su step Java cuando la entidad no tiene campos obligatorios.</p>
+    <div class="stat">4 ficheros · <b>+32 / -9</b> líneas</div>
+  </div>
+
   <div class="callout">
     Los commits <code>e1fddaf</code> a <code>fa12969</code> son los que motivaron el informe de hallazgos:
     surgieron al usar el generador contra un esquema de producción real en vez de los ejemplos de 3-10 campos
