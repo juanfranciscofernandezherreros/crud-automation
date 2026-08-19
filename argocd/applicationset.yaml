@@ -9,6 +9,8 @@ spec:
   generators:
     - list:
         elements:
+          - repo: crud-argocdsmoke-hexagonal
+            branch: main
           - repo: crud-articulo
             branch: main
           - repo: crud-catalogo
