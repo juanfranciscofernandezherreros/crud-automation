@@ -1,7 +1,7 @@
 """Plantillas para arquitecturas basadas en dominio, puertos y adaptadores."""
 
 from . import shared_templates
-from .parsing import DEFAULT_ENDPOINTS
+from .parsing import DEFAULT_ENDPOINTS, pluralize
 
 
 def get_domain(entity_name, package, fields, include_all_args_builder=True):
@@ -502,7 +502,7 @@ def get_controller(entity_name, entity_lower, layout, endpoints=None, custom_end
 {imports_block}
 
 @RestController
-@RequestMapping("/api/{entity_lower}s")
+@RequestMapping("/api/{pluralize(entity_lower)}")
 @RequiredArgsConstructor
 @Tag(name = "{entity_name}")
 public class {entity_name}Controller {{
@@ -597,7 +597,7 @@ def get_controller_test(
             required_test = f"""
     @Test
     void create_MissingRequiredInput_Returns400() throws Exception {{
-        mockMvc.perform(post("/api/{entity_lower}s").with(csrf())
+        mockMvc.perform(post("/api/{pluralize(entity_lower)}").with(csrf())
                 .header("Idempotency-Key", "test-key")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{{}}"))
@@ -612,7 +612,7 @@ def get_controller_test(
     void create_InvalidValue_Returns400() throws Exception {{
         {entity_name}CreateDTO createDTO = new {entity_name}CreateDTO();
 {invalid_assignments}
-        mockMvc.perform(post("/api/{entity_lower}s").with(csrf())
+        mockMvc.perform(post("/api/{pluralize(entity_lower)}").with(csrf())
                 .header("Idempotency-Key", "test-key")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(createDTO)))
@@ -632,12 +632,12 @@ def get_controller_test(
         when(idempotencyService.execute(any(), any(), any(), any(), any())).thenReturn(domain);
         when(mapper.toDto(domain)).thenReturn(responseDTO);
 
-        mockMvc.perform(post("/api/{entity_lower}s").with(csrf())
+        mockMvc.perform(post("/api/{pluralize(entity_lower)}").with(csrf())
                 .header("Idempotency-Key", "test-key")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(createDTO)))
                 .andExpect(status().isCreated())
-                .andExpect(header().string("Location", "http://localhost/api/{entity_lower}s/1"));
+                .andExpect(header().string("Location", "http://localhost/api/{pluralize(entity_lower)}/1"));
     }}
 {required_test}{constraint_test}""")
     if "list" in endpoints:
@@ -646,7 +646,7 @@ def get_controller_test(
     void findAll_WithFilterQueryParam_Returns200() throws Exception {{
         when(useCase.findAll(any())).thenReturn(new PageResult<>(List.of(), 0, 0, 0, 20));
 
-        mockMvc.perform(get("/api/{entity_lower}s?page=0&size=5&estadoInventado=cualquier-valor"))
+        mockMvc.perform(get("/api/{pluralize(entity_lower)}?page=0&size=5&estadoInventado=cualquier-valor"))
                 .andExpect(status().isOk());
     }}""")
     if "patch" in endpoints:
@@ -658,7 +658,7 @@ def get_controller_test(
         when(useCase.patch(1, domain)).thenReturn(domain);
         when(mapper.toDto(domain)).thenReturn(new {entity_name}ResponseDTO());
 
-        mockMvc.perform(patch("/api/{entity_lower}s/1").with(csrf())
+        mockMvc.perform(patch("/api/{pluralize(entity_lower)}/1").with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{{}}"))
                 .andExpect(status().isOk());
@@ -677,7 +677,7 @@ def get_controller_test(
         when(useCase.findById(1)).thenReturn(domain);
         when(mapper.toDto(domain)).thenReturn(new {entity_name}ResponseDTO());
 
-        mockMvc.perform(get("/api/{entity_lower}s/1")
+        mockMvc.perform(get("/api/{pluralize(entity_lower)}/1")
                 .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk());
     }}""")

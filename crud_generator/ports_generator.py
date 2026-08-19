@@ -21,7 +21,7 @@ from .fields import (
     has_default,
     has_required_input,
 )
-from .parsing import DEFAULT_ENDPOINTS, DefinitionError, parse_attributes
+from .parsing import DEFAULT_ENDPOINTS, DefinitionError, parse_attributes, pluralize
 from .writer import write_file as _write_file
 
 
@@ -142,7 +142,7 @@ def _write_ports_entity(
     inverse_relations = inverse_relations or []
     custom_endpoints = custom_endpoints or []
     entity_lower = entity_name.lower()
-    table_name = f"{entity_lower}s"
+    table_name = f"{pluralize(entity_lower)}"
 
     migrations.write_migration(
         resources, entity_name, entity_lower, table_name, attrs, write_file,

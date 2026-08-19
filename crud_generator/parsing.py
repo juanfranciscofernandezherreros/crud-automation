@@ -55,6 +55,14 @@ def to_camel_case(snake_str):
     return components[0] + "".join(component.title() for component in components[1:])
 
 
+def pluralize(entity_lower):
+    """Segmento plural usado en rutas REST, nombres de tabla y prosa generada
+    a partir de 'entity_lower'. Apendice 's' salvo que el nombre ya termine en
+    's' (p.ej. una entidad ya en plural como 'dividendos'), para no producir
+    '/api/dividendoss' o una tabla 'dividendoss'."""
+    return entity_lower if entity_lower.endswith("s") else f"{entity_lower}s"
+
+
 PACKAGE_PATTERN = re.compile(r"^[a-z][a-z0-9]*(?:\.[a-z][a-z0-9]*)*$")
 
 
@@ -517,7 +525,7 @@ def _finalize_attribute(name, type_name, validations):
         "enum_values": enum_values,
         "enum_class": enum_class,
         "references": references,
-        "reference_table": f"{references.lower()}s" if references else None,
+        "reference_table": pluralize(references.lower()) if references else None,
     }
 
 

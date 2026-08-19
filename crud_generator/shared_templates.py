@@ -6,6 +6,8 @@ con dos copias que había que recordar mantener sincronizadas. Ver
 `informes/historial-commits.html` para el porqué (cualquier fix aplicado a una
 arquitectura y olvidado en la otra es el mayor riesgo del generador)."""
 
+from .parsing import pluralize
+
 
 def capitalize_first(camel_name):
     """'cliente' -> 'Cliente'. Usado para construir getters/setters
@@ -50,7 +52,7 @@ import java.time.LocalDateTime;
 import java.math.BigDecimal;{list_import}
 {enum_imports}
 @Entity
-@Table(name = "{entity_lower}s"{unique_constraints_annotation}){dynamic_insert_annotation}
+@Table(name = "{pluralize(entity_lower)}"{unique_constraints_annotation}){dynamic_insert_annotation}
 @Getter
 @Setter
 @NoArgsConstructor

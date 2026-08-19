@@ -4,7 +4,7 @@ from html import escape
 
 from .architectures import DEFAULT_BASE_PACKAGE
 from .fields import format_default_sql_literal, generate_composite_unique_groups
-from .parsing import DEFAULT_ENDPOINTS
+from .parsing import DEFAULT_ENDPOINTS, pluralize
 
 
 ARCHITECTURE_DETAILS = {
@@ -200,7 +200,7 @@ def get_documentation_html(
     endpoints = endpoints or list(DEFAULT_ENDPOINTS)
     details = ARCHITECTURE_DETAILS[architecture]
     project_dir = _project_directory(entity_lower, architecture)
-    endpoint = f"/api/{entity_lower}s"
+    endpoint = f"/api/{pluralize(entity_lower)}"
     database = f"{entity_lower}_db"
     command = escape(_command(entity_name, attrs_str, architecture))
     field_rows = _field_rows(attrs)

@@ -22,7 +22,13 @@ from .fields import (
     has_default,
     has_required_input,
 )
-from .parsing import DEFAULT_ENDPOINTS, DefinitionError, normalize_entity_name, parse_attributes
+from .parsing import (
+    DEFAULT_ENDPOINTS,
+    DefinitionError,
+    normalize_entity_name,
+    parse_attributes,
+    pluralize,
+)
 from . import documentation, migrations, shared_templates, templates
 from .observability import write_observability_stack as _write_observability_stack
 from .writer import write_file as _write_file
@@ -225,7 +231,7 @@ def _write_layered_entity(
     java_base = f"{base_dir}/src/main/java/{package_path}"
     res_base = f"{base_dir}/src/main/resources"
     test_base = f"{base_dir}/src/test/java/{package_path}"
-    table_name = f"{entity_lower}s"
+    table_name = f"{pluralize(entity_lower)}"
 
     migrations.write_migration(
         res_base, entity_name, entity_lower, table_name, attrs, write_file,

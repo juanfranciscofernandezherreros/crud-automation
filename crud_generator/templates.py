@@ -1,7 +1,7 @@
 """Plantillas de los archivos del proyecto Spring Boot generado."""
 
 from . import shared_templates
-from .parsing import DEFAULT_ENDPOINTS
+from .parsing import DEFAULT_ENDPOINTS, pluralize
 
 
 def get_pom_xml(entity_lower):
@@ -340,13 +340,13 @@ def get_grafana_business_dashboard(entity_name, entity_lower):
   "panels": [
     {{
       "id": 1,
-      "title": "Peticiones/seg a /api/{entity_lower}s",
+      "title": "Peticiones/seg a /api/{pluralize(entity_lower)}",
       "type": "timeseries",
       "gridPos": {{"h": 8, "w": 12, "x": 0, "y": 0}},
       "datasource": {{"type": "prometheus", "uid": "Prometheus"}},
       "targets": [
         {{
-          "expr": "sum(rate(http_server_requests_seconds_count{{uri=~\\"/api/{entity_lower}s.*\\"}}[1m]))",
+          "expr": "sum(rate(http_server_requests_seconds_count{{uri=~\\"/api/{pluralize(entity_lower)}.*\\"}}[1m]))",
           "legendFormat": "req/s"
         }}
       ]
@@ -359,7 +359,7 @@ def get_grafana_business_dashboard(entity_name, entity_lower):
       "datasource": {{"type": "prometheus", "uid": "Prometheus"}},
       "targets": [
         {{
-          "expr": "sum(rate(http_server_requests_seconds_count{{uri=~\\"/api/{entity_lower}s.*\\",status=~\\"5..\\"}}[1m]))",
+          "expr": "sum(rate(http_server_requests_seconds_count{{uri=~\\"/api/{pluralize(entity_lower)}.*\\",status=~\\"5..\\"}}[1m]))",
           "legendFormat": "errores/s"
         }}
       ]
@@ -372,7 +372,7 @@ def get_grafana_business_dashboard(entity_name, entity_lower):
       "datasource": {{"type": "prometheus", "uid": "Prometheus"}},
       "targets": [
         {{
-          "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{{uri=~\\"/api/{entity_lower}s.*\\"}}[5m])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{{uri=~\\"/api/{pluralize(entity_lower)}.*\\"}}[5m])) by (le))",
           "legendFormat": "p95 (s)"
         }}
       ]
@@ -562,7 +562,7 @@ springdoc:
 
 def get_sql_migration(entity_lower, sql_fields, sql_indexes=""):
     indexes = f"\n{sql_indexes}\n" if sql_indexes else ""
-    return f"""CREATE TABLE {entity_lower}s (
+    return f"""CREATE TABLE {pluralize(entity_lower)} (
 {sql_fields}
 );
 {indexes}
@@ -852,7 +852,7 @@ def get_controller(entity_name, entity_lower, endpoints=None, custom_endpoints=N
     if "list" in endpoints:
         methods.append(f"""
     @GetMapping
-    @Operation(summary = "Listar {entity_lower}s",
+    @Operation(summary = "Listar {pluralize(entity_lower)}",
             description = "Admite filtros por igualdad usando cualquier campo de la entidad como query param")
     public ResponseEntity<Page<{entity_name}ResponseDTO>> findAll(
             Pageable pageable, @RequestParam Map<String, String> filters) {{
@@ -936,7 +936,7 @@ def get_controller(entity_name, entity_lower, endpoints=None, custom_endpoints=N
 {imports_block}
 
 @RestController
-@RequestMapping("/api/{entity_lower}s")
+@RequestMapping("/api/{pluralize(entity_lower)}")
 @RequiredArgsConstructor
 @Tag(name = "{entity_name}", description = "API CRUD para {entity_name}")
 public class {entity_name}Controller {{
@@ -1221,7 +1221,7 @@ def get_controller_test(
     void create_MissingRequiredInput_Returns400() throws Exception {{
         {entity_name}CreateDTO createDTO = new {entity_name}CreateDTO();
 
-        mockMvc.perform(post("/api/{entity_lower}s").with(csrf())
+        mockMvc.perform(post("/api/{pluralize(entity_lower)}").with(csrf())
                 .header("Idempotency-Key", "test-key")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(createDTO)))
@@ -1239,7 +1239,7 @@ def get_controller_test(
         {entity_name}CreateDTO createDTO = new {entity_name}CreateDTO();
 {invalid_assignments}
 
-        mockMvc.perform(post("/api/{entity_lower}s").with(csrf())
+        mockMvc.perform(post("/api/{pluralize(entity_lower)}").with(csrf())
                 .header("Idempotency-Key", "test-key")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(createDTO)))
@@ -1259,12 +1259,12 @@ def get_controller_test(
         Mockito.when(idempotencyService.execute(any(), any(), any(), any(), any()))
                 .thenReturn(responseDTO);
 
-        mockMvc.perform(post("/api/{entity_lower}s").with(csrf())
+        mockMvc.perform(post("/api/{pluralize(entity_lower)}").with(csrf())
                 .header("Idempotency-Key", "test-key")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(createDTO)))
                 .andExpect(status().isCreated())
-                .andExpect(header().string("Location", "http://localhost/api/{entity_lower}s/1"));
+                .andExpect(header().string("Location", "http://localhost/api/{pluralize(entity_lower)}/1"));
     }}
 {invalid_test}{constraint_test}""")
     if "list" in endpoints:
@@ -1273,7 +1273,7 @@ def get_controller_test(
     void findAll_WithFilterQueryParam_Returns200() throws Exception {{
         Mockito.when(service.findAll(any(), any())).thenReturn(new PageImpl<>(List.of()));
 
-        mockMvc.perform(get("/api/{entity_lower}s?page=0&size=5&estadoInventado=cualquier-valor"))
+        mockMvc.perform(get("/api/{pluralize(entity_lower)}?page=0&size=5&estadoInventado=cualquier-valor"))
                 .andExpect(status().isOk());
     }}""")
     if "patch" in endpoints:
@@ -1284,7 +1284,7 @@ def get_controller_test(
         Mockito.when(service.patch(Mockito.eq(1), any({entity_name}PatchDTO.class)))
                 .thenReturn(responseDTO);
 
-        mockMvc.perform(patch("/api/{entity_lower}s/1").with(csrf())
+        mockMvc.perform(patch("/api/{pluralize(entity_lower)}/1").with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{{}}"))
                 .andExpect(status().isOk());
@@ -1297,7 +1297,7 @@ def get_controller_test(
 
         Mockito.when(service.findById(1)).thenReturn(responseDTO);
 
-        mockMvc.perform(get("/api/{entity_lower}s/1")
+        mockMvc.perform(get("/api/{pluralize(entity_lower)}/1")
                 .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk());
     }}""")
@@ -1429,11 +1429,11 @@ class PostgreSQLIntegrationTest {{
     void flywayCreatesTableAndVersionColumn() {{
         Integer tables = jdbcTemplate.queryForObject(
                 "SELECT count(*) FROM information_schema.tables " +
-                        "WHERE table_schema='public' AND table_name='{entity_lower}s'",
+                        "WHERE table_schema='public' AND table_name='{pluralize(entity_lower)}'",
                 Integer.class);
         Integer versions = jdbcTemplate.queryForObject(
                 "SELECT count(*) FROM information_schema.columns " +
-                        "WHERE table_schema='public' AND table_name='{entity_lower}s' " +
+                        "WHERE table_schema='public' AND table_name='{pluralize(entity_lower)}' " +
                         "AND column_name='version'",
                 Integer.class);
         assertEquals(1, tables);
@@ -1459,7 +1459,7 @@ class PostgreSQLIntegrationTest {{
 
     @Test
     void apiRejectsUnauthenticatedRequests() throws Exception {{
-        mockMvc.perform(get("/api/{entity_lower}s"))
+        mockMvc.perform(get("/api/{pluralize(entity_lower)}"))
                 .andExpect(status().isUnauthorized());
     }}
 }}
@@ -1545,8 +1545,8 @@ def get_cucumber_feature(entity_name, entity_lower, endpoints, has_reference):
     scenarios = []
     if "list" in endpoints:
         scenarios.append(f"""
-  Scenario: Listar {entity_lower}s
-    When se listan los {entity_lower}s
+  Scenario: Listar {pluralize(entity_lower)}
+    When se listan los {pluralize(entity_lower)}
     Then la respuesta tiene estado 200""")
     if "create" in endpoints and not has_reference:
         scenarios.append(f"""
@@ -1581,9 +1581,9 @@ def get_cucumber_steps(
     steps = []
     if "list" in endpoints:
         steps.append(f"""
-    @When("se listan los {entity_lower}s")
+    @When("se listan los {pluralize(entity_lower)}")
     public void seListanLos{entity_name}s() {{
-        response = authenticated().get("/api/{entity_lower}s");
+        response = authenticated().get("/api/{pluralize(entity_lower)}");
     }}""")
     if "create" in endpoints:
         steps.append(f"""
@@ -1595,7 +1595,7 @@ def get_cucumber_steps(
                 .header("Idempotency-Key", java.util.UUID.randomUUID().toString())
                 .contentType("application/json")
                 .body(objectMapper.writeValueAsString(dto))
-                .post("/api/{entity_lower}s");
+                .post("/api/{pluralize(entity_lower)}");
         if (response.statusCode() == 201) {{
             createdId = response.jsonPath().getInt("id");
         }}
@@ -1607,18 +1607,18 @@ def get_cucumber_steps(
                 .header("Idempotency-Key", java.util.UUID.randomUUID().toString())
                 .contentType("application/json")
                 .body("{{}}")
-                .post("/api/{entity_lower}s");
+                .post("/api/{pluralize(entity_lower)}");
     }}""")
     if "get" in endpoints:
         steps.append(f"""
     @When("se consulta el {entity_lower} con id {{int}}")
     public void seConsultaEl{entity_name}ConId(Integer id) {{
-        response = authenticated().get("/api/{entity_lower}s/" + id);
+        response = authenticated().get("/api/{pluralize(entity_lower)}/" + id);
     }}
 
     @When("se consulta el {entity_lower} creado")
     public void seConsultaEl{entity_name}Creado() {{
-        response = authenticated().get("/api/{entity_lower}s/" + createdId);
+        response = authenticated().get("/api/{pluralize(entity_lower)}/" + createdId);
     }}""")
     steps_block = "\n".join(steps)
 
