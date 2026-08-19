@@ -1,0 +1,75 @@
+{
+  "entity": "Dividendos",
+  "architecture": "hexagonal",
+  "package": "com.miempresa.dividendos",
+  "fields": [
+    {
+      "name": "id",
+      "type": "int"
+    },
+    {
+      "name": "ticker",
+      "type": "string",
+      "max": 10,
+      "not_blank": true,
+      "required": true,
+      "index": true
+    },
+    {
+      "name": "empresa",
+      "type": "string",
+      "max": 150,
+      "not_blank": true,
+      "required": true
+    },
+    {
+      "name": "importe_por_accion",
+      "type": "decimal",
+      "precision": 12,
+      "scale": 4,
+      "required": true,
+      "positive": true
+    },
+    {
+      "name": "moneda",
+      "type": "string",
+      "max": 3,
+      "not_blank": true,
+      "required": true,
+      "default": "EUR"
+    },
+    {
+      "name": "numero_acciones",
+      "type": "int",
+      "required": true,
+      "positive": true
+    },
+    {
+      "name": "fecha_ex_dividendo",
+      "type": "date",
+      "required": true
+    },
+    {
+      "name": "fecha_pago",
+      "type": "date",
+      "required": true
+    },
+    {
+      "name": "tipo",
+      "type": "string",
+      "max": 30,
+      "not_blank": true,
+      "required": true,
+      "default": "ORDINARIO"
+    },
+    {
+      "name": "estado",
+      "type": "string",
+      "max": 30,
+      "not_blank": true,
+      "required": true,
+      "default": "PENDIENTE",
+      "index": true
+    }
+  ]
+}
