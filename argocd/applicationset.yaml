@@ -8,7 +8,9 @@ spec:
   goTemplateOptions: ["missingkey=error"]
   generators:
     - list:
-        elements: []
+        elements:
+          - repo: crud-dividendos-hexagonal
+            branch: main
   template:
     metadata:
       name: "{{.repo}}"
