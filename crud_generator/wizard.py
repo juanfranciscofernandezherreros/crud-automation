@@ -6,6 +6,7 @@ from .architectures import ARCHITECTURES, normalize_architecture
 from .database_profiles import install_database_profile
 from .generator import generate_project
 from .security_profiles import ask_endpoint_security, install_endpoint_security
+from .sqlserver_test_profile import install_sqlserver_test_profile
 from .parsing import (
     VALID_ENDPOINTS,
     DefinitionError,
@@ -189,6 +190,8 @@ def run_wizard(conventions=None):
     database = _ask_database()
     try:
         install_database_profile(database)
+        if database == "sqlserver":
+            install_sqlserver_test_profile()
     except ValueError as error:
         raise DefinitionError(str(error)) from error
     _install_java_version(java_version)
