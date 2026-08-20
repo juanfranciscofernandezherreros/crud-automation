@@ -11,21 +11,32 @@ class RunWizardTest(unittest.TestCase):
         with self.assertRaisesRegex(DefinitionError, "terminal interactiva"):
             run_wizard()
 
+    @patch("crud_generator.wizard.install_endpoint_security")
+    @patch("crud_generator.wizard.ask_endpoint_security", return_value=[])
     @patch("crud_generator.wizard.generate_project", return_value="crud-producto")
     @patch("crud_generator.wizard.sys.stdin.isatty", return_value=True)
     @patch("builtins.input")
-    def test_minimal_happy_path_no_custom_endpoint(self, mock_input, isatty, generate_project):
+    def test_minimal_happy_path_no_custom_endpoint(
+        self,
+        mock_input,
+        isatty,
+        generate_project,
+        ask_endpoint_security,
+        install_endpoint_security,
+    ):
         mock_input.side_effect = [
-            "Producto",                # nombre de la entidad
-            "id:int,nombre:string",    # campos
-            "",                        # arquitectura -> default (layered)
-            "",                        # endpoints -> default (todos)
-            "n",                       # ¿añadir endpoint personalizado? no
-            "",                        # paquete base -> default
-            "n",                       # sobrescribir?
-            "n",                       # verify?
-            "n",                       # publicar en GitHub?
-            "n",                       # remember?
+            "",                         # Java -> 21 por defecto
+            "",                         # DB -> PostgreSQL por defecto
+            "Producto",                 # nombre de la entidad
+            "id:int,nombre:string",     # campos
+            "",                         # arquitectura -> default (layered)
+            "",                         # endpoints -> default (todos)
+            "n",                        # ¿añadir endpoint personalizado? no
+            "",                         # paquete base -> default
+            "n",                        # sobrescribir?
+            "n",                        # verify?
+            "n",                        # publicar en GitHub?
+            "n",                        # remember?
         ]
 
         result = run_wizard()
@@ -42,17 +53,30 @@ class RunWizardTest(unittest.TestCase):
         self.assertEqual("com.example.crud", package)
         self.assertIsNone(endpoints)
 
+        ask_endpoint_security.assert_called_once_with("Producto", None, None)
+        install_endpoint_security.assert_called_once_with([])
         generate_project.assert_called_once_with(
             "Producto", "id:int,nombre:string", "layered",
             base_package="com.example.crud", endpoints=None, overwrite=False,
             custom_endpoints=None,
         )
 
+    @patch("crud_generator.wizard.install_endpoint_security")
+    @patch("crud_generator.wizard.ask_endpoint_security", return_value=[])
     @patch("crud_generator.wizard.generate_project", return_value="crud-tarea-hexagonal")
     @patch("crud_generator.wizard.sys.stdin.isatty", return_value=True)
     @patch("builtins.input")
-    def test_full_path_with_custom_endpoint_and_github(self, mock_input, isatty, generate_project):
+    def test_full_path_with_custom_endpoint_and_github(
+        self,
+        mock_input,
+        isatty,
+        generate_project,
+        ask_endpoint_security,
+        install_endpoint_security,
+    ):
         mock_input.side_effect = [
+            "21",                           # Java 21
+            "postgresql",                   # PostgreSQL
             "Tarea",                        # entidad
             "id:int,titulo:string",         # campos
             "hexagonal",                    # arquitectura
@@ -97,25 +121,82 @@ class RunWizardTest(unittest.TestCase):
         self.assertIsNone(custom_endpoints[0]["request_fields"] or None)
         self.assertEqual(1, len(custom_endpoints[0]["response_fields"]))
         self.assertTrue(call_kwargs["overwrite"])
+        ask_endpoint_security.assert_called_once_with(
+            "Tarea", ["list", "get", "create"], custom_endpoints
+        )
+        install_endpoint_security.assert_called_once_with([])
 
+    @patch("crud_generator.wizard.install_endpoint_security")
+    @patch("crud_generator.wizard.ask_endpoint_security", return_value=[])
     @patch("crud_generator.wizard.sys.stdin.isatty", return_value=True)
     @patch("builtins.input")
-    def test_reprompts_on_invalid_entity_name(self, mock_input, isatty):
+    def test_reprompts_on_invalid_entity_name(
+        self,
+        mock_input,
+        isatty,
+        ask_endpoint_security,
+        install_endpoint_security,
+    ):
         mock_input.side_effect = [
-            "no-valido",                # invalido: contiene guion
-            "Producto",                 # valido
-            "id:int",                   # campos
-            "",                         # arquitectura
-            "",                         # endpoints
-            "n",                        # custom endpoint
-            "",                         # paquete
-            "n", "n", "n", "n",         # overwrite/verify/github/remember
+            "",                          # Java -> 21
+            "",                          # DB -> PostgreSQL
+            "no-valido",                 # invalido: contiene guion
+            "Producto",                  # valido
+            "id:int",                    # campos
+            "",                          # arquitectura
+            "",                          # endpoints
+            "n",                         # custom endpoint
+            "",                          # paquete
+            "n", "n", "n", "n",       # overwrite/verify/github/remember
         ]
 
         with patch("crud_generator.wizard.generate_project", return_value="crud-producto"):
             base_dir, *_ = run_wizard()
 
         self.assertEqual("crud-producto", base_dir)
+        ask_endpoint_security.assert_called_once_with("Producto", None, None)
+        install_endpoint_security.assert_called_once_with([])
+
+    @patch("crud_generator.wizard.install_endpoint_security")
+    @patch("crud_generator.wizard.ask_endpoint_security", return_value=[])
+    @patch("crud_generator.wizard._install_java_version")
+    @patch("crud_generator.wizard.install_sqlserver_test_profile")
+    @patch("crud_generator.wizard.install_database_profile")
+    @patch("crud_generator.wizard.generate_project", return_value="crud-factura")
+    @patch("crud_generator.wizard.sys.stdin.isatty", return_value=True)
+    @patch("builtins.input")
+    def test_java17_sqlserver_selection_installs_expected_profiles(
+        self,
+        mock_input,
+        isatty,
+        generate_project,
+        install_database_profile,
+        install_sqlserver_test_profile,
+        install_java_version,
+        ask_endpoint_security,
+        install_endpoint_security,
+    ):
+        mock_input.side_effect = [
+            "17",
+            "sqlserver",
+            "Factura",
+            "id:int,numero:string",
+            "",
+            "list,get",
+            "n",
+            "",
+            "n", "n", "n", "n",
+        ]
+
+        result = run_wizard()
+
+        self.assertEqual("crud-factura", result[0])
+        install_database_profile.assert_called_once_with("sqlserver")
+        install_sqlserver_test_profile.assert_called_once_with()
+        install_java_version.assert_called_once_with("17")
+        ask_endpoint_security.assert_called_once_with("Factura", ["list", "get"], None)
+        install_endpoint_security.assert_called_once_with([])
+        generate_project.assert_called_once()
 
 
 if __name__ == "__main__":
