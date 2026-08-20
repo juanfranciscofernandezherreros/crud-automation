@@ -7,10 +7,11 @@ from pathlib import Path
 
 _MAIN_JAVA_MARKER = os.path.join("src", "main", "java")
 _PACKAGE_RE = re.compile(r"^package\s+([\w.]+);", re.MULTILINE)
+_IMPORT_RE = re.compile(r"^import\s+([\w.]+);", re.MULTILINE)
 _CLASS_RE = re.compile(r"public\s+class\s+(\w+)")
 _FINAL_FIELD_RE = re.compile(r"private\s+final\s+([\w.$<>?, ]+)\s+(\w+)\s*;")
 _CONSTRUCTOR_RE = re.compile(r"public\s+(\w+)\s*\((.*?)\)\s*\{", re.DOTALL)
-_NEW_TYPE_RE = re.compile(r"new\s+(\w+)\s*\(")
+_NEW_TYPE_RE = re.compile(r"new\s+([\w.]+)\s*\(")
 
 
 def _project_root(path):
@@ -56,7 +57,24 @@ def _read_package(content):
     return match.group(1) if match else None
 
 
+def _import_map(content):
+    imports = {}
+    for qualified in _IMPORT_RE.findall(content):
+        imports[qualified.rsplit(".", 1)[-1]] = qualified
+    return imports
+
+
+def _qualify_declared_type(field_type, imports):
+    clean = field_type.strip()
+    simple = re.sub(r"<.*>", "", clean).strip()
+    qualified = imports.get(simple)
+    if qualified:
+        return clean.replace(simple, qualified, 1)
+    return clean
+
+
 def _constructor_dependencies(content, class_name):
+    imports = _import_map(content)
     match = _CONSTRUCTOR_RE.search(content)
     if match and match.group(1) == class_name:
         params = []
@@ -65,21 +83,25 @@ def _constructor_dependencies(content, class_name):
             for parameter in raw.split(","):
                 pieces = parameter.strip().split()
                 if len(pieces) >= 2:
-                    params.append((" ".join(pieces[:-1]), pieces[-1]))
+                    field_type = _qualify_declared_type(" ".join(pieces[:-1]), imports)
+                    params.append((field_type, pieces[-1]))
         return params
 
-    return [(field_type.strip(), name) for field_type, name in _FINAL_FIELD_RE.findall(content)]
+    return [
+        (_qualify_declared_type(field_type.strip(), imports), name)
+        for field_type, name in _FINAL_FIELD_RE.findall(content)
+    ]
 
 
 def _bean_method_name(class_name):
     return class_name[:1].lower() + class_name[1:]
 
 
-def _qualified_type(field_type, source_package, type_packages):
+def _qualified_type(field_type, type_packages):
     clean = field_type.strip()
-    if "." in clean or clean.startswith("java."):
-        return clean
     simple = re.sub(r"<.*>", "", clean).strip()
+    if "." in simple or simple.startswith("java."):
+        return clean
     qualified = type_packages.get(simple)
     if qualified:
         return clean.replace(simple, qualified, 1)
@@ -89,10 +111,11 @@ def _qualified_type(field_type, source_package, type_packages):
 def _existing_instantiated_types(java_root):
     instantiated = set()
     for path in java_root.rglob("*.java"):
-        if "configuration" not in path.parts:
+        if "configuration" not in path.parts or path.name == "GeneratedBeanConfiguration.java":
             continue
         content = path.read_text(encoding="utf-8")
-        instantiated.update(_NEW_TYPE_RE.findall(content))
+        for constructed_type in _NEW_TYPE_RE.findall(content):
+            instantiated.add(constructed_type.rsplit(".", 1)[-1])
     return instantiated
 
 
@@ -182,7 +205,7 @@ def _render_configuration(application_package, candidates, type_packages):
             params = []
             args = []
             for field_type, name in dependencies:
-                params.append(f"{_qualified_type(field_type, package, type_packages)} {name}")
+                params.append(f"{_qualified_type(field_type, type_packages)} {name}")
                 args.append(name)
             body = (
                 f"    @org.springframework.context.annotation.Bean\n"
