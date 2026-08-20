@@ -5,6 +5,7 @@ import sys
 from .architectures import ARCHITECTURES, normalize_architecture
 from .database_profiles import install_database_profile
 from .generator import generate_project
+from .security_profiles import ask_endpoint_security, install_endpoint_security
 from .parsing import (
     VALID_ENDPOINTS,
     DefinitionError,
@@ -159,7 +160,7 @@ def _ask_custom_endpoints():
     return normalize_custom_endpoints(raw_endpoints)
 
 
-def _print_infrastructure_notice(java_version, database):
+def _print_infrastructure_notice(java_version, database, security_rules):
     print()
     print("Configuración seleccionada:")
     print(f"  - Java: {java_version}")
@@ -168,8 +169,8 @@ def _print_infrastructure_notice(java_version, database):
         print("  - SQL Server: JDBC + Flyway + Testcontainers + HikariCP.")
     else:
         print("  - PostgreSQL: JDBC + Flyway + Testcontainers.")
+    print(f"  - Seguridad: roles y permisos configurados en {len(security_rules)} endpoints.")
     print("  - CI: GitHub Actions (.github/workflows/ci.yml).")
-    print("  - Seguridad: HTTP Basic con roles USER/ADMIN.")
     print("  - Observabilidad: Prometheus + Loki + Grafana en docker-compose.yml.")
     print()
 
@@ -184,8 +185,6 @@ def run_wizard(conventions=None):
 
     conventions = conventions or {}
 
-    # Estas decisiones se toman antes de parsear campos y generar archivos para
-    # que el perfil SQL y las plantillas Maven/Docker sean coherentes entre sí.
     java_version = _ask_java_version()
     database = _ask_database()
     try:
@@ -199,11 +198,13 @@ def run_wizard(conventions=None):
     architecture = _ask_architecture(conventions.get("architecture"))
     endpoints = _ask_endpoints(conventions.get("endpoints"))
     custom_endpoints = _ask_custom_endpoints()
+    security_rules = ask_endpoint_security(entity_name, endpoints, custom_endpoints)
+    install_endpoint_security(security_rules)
 
     default_package = conventions.get("package") or "com.example.crud"
     base_package = input(f"Paquete base [{default_package}]: ").strip() or default_package
 
-    _print_infrastructure_notice(java_version, database)
+    _print_infrastructure_notice(java_version, database, security_rules)
 
     overwrite = _yes_no("¿Sobrescribir si el directorio ya existe?", default=False)
     verify = _yes_no("¿Ejecutar 'mvn verify' tras generar?", default=False)
@@ -227,7 +228,7 @@ def run_wizard(conventions=None):
     )
     print(
         f"Proyecto {base_dir} generado con éxito con Java {java_version} y {database}, "
-        "incluyendo todas las capas, tests y docs/index.html."
+        "incluyendo seguridad por endpoint, tests y docs/index.html."
     )
 
     return (
