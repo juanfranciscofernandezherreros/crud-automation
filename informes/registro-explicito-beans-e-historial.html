@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Registro explícito de beans e historial | crud-automation</title>
+<style>
+:root{--ink:#17211c;--muted:#58645e;--paper:#f7f8f5;--surface:#fff;--line:#d9dfda;--green:#176b4b;--amber:#b66b13;--red:#a33a32;--blue:#315b7d}
+*{box-sizing:border-box} body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.6 Inter,system-ui,"Segoe UI",sans-serif}
+header{background:var(--ink);color:white;padding:38px max(24px,calc((100vw - 1020px)/2));border-bottom:3px solid var(--amber)}
+header a{color:#d9e6df;text-decoration:none} h1{margin:10px 0 8px;font-size:34px} header p{max-width:850px;color:#d3ddd7}
+main{width:min(1020px,calc(100% - 40px));margin:auto;padding:38px 0 80px} section{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:24px;margin:0 0 24px;box-shadow:0 5px 16px rgba(23,33,28,.05)}
+h2{margin-top:0} h3{margin-bottom:6px} code{background:#eef2ef;padding:1px 5px;border-radius:3px;color:#0f4934} pre{overflow:auto;background:#111915;color:#e9f0eb;padding:16px;border-radius:6px}
+.good{border-left:5px solid var(--green)} .tradeoff{border-left:5px solid var(--amber)} .verify{border-left:5px solid var(--blue)}
+table{width:100%;border-collapse:collapse;font-size:13.5px} th,td{text-align:left;vertical-align:top;padding:9px 10px;border-bottom:1px solid var(--line)} th{position:sticky;top:0;background:#edf2ef} td:first-child{white-space:nowrap;font-family:Consolas,monospace;color:#0f4934}.phase{background:#f1f4f2;font-weight:700;color:#33423a}.note{color:var(--muted)}
+ul{padding-left:22px} footer{text-align:center;background:var(--ink);color:#cbd6d0;padding:24px;font-size:12px}
+</style>
+</head>
+<body>
+<header>
+<a href="index.html">&larr; Informes crud-automation</a>
+<h1>Registro explícito de Services, Mappers y Controllers como beans</h1>
+<p>Informe de arquitectura, justificación, riesgos, verificación y lectura cronológica del historial Git. Cambio preparado en la rama <code>feature/explicit-bean-registration</code>.</p>
+</header>
+<main>
+<section class="good">
+<h2>Resumen ejecutivo</h2>
+<p>El generador pasa de depender de component scanning para Services, Mappers y Controllers a construir explícitamente el grafo principal de la aplicación con <code>@Bean</code>. Los mappers MapStruct se generan sin <code>componentModel = "spring"</code>; los Services dejan de usar <code>@Service</code>; los Controllers conservan <code>@RestController</code> porque esa anotación define su semántica MVC, pero se excluyen del component scan y su instancia procede de un método <code>@Bean</code>.</p>
+<p>La política se implementa en el punto común de escritura del generador, <code>crud_generator/writer.py</code>, para que se aplique de forma uniforme a layered, hexagonal y clean. El proyecto generado recibe un <code>GeneratedBeanConfiguration.java</code> que actúa como composition root explícito.</p>
+</section>
+<section>
+<h2>Antes y después</h2>
+<h3>Antes</h3>
+<pre>@Mapper(componentModel = "spring")
+public interface UserMapper { ... }
+
+@Service
+public class UserServiceImpl { ... }
+
+@RestController
+public class UserController { ... }</pre>
+<p>Spring descubría estas piezas de forma implícita al escanear el classpath.</p>
+<h3>Después</h3>
+<pre>@Mapper
+public interface UserMapper { ... }
+
+public class UserServiceImpl { ... }
+
+@RestController
+public class UserController { ... }
+
+@Configuration
+public class GeneratedBeanConfiguration {
+    @Bean
+    UserMapper userMapper() {
+        return Mappers.getMapper(UserMapper.class);
+    }
+
+    @Bean
+    UserServiceImpl userServiceImpl(UserRepository repository, UserMapper mapper) {
+        return new UserServiceImpl(repository, mapper);
+    }
+
+    @Bean
+    UserController userController(UserServiceImpl service) {
+        return new UserController(service);
+    }
+}</pre>
+</section>
+<section class="good">
+<h2>Por qué es un buen cambio</h2>
+<ul>
+<li><strong>Composition root visible:</strong> se puede leer en un único lugar qué objetos forman la aplicación y con qué dependencias se construyen.</li>
+<li><strong>Menos comportamiento implícito:</strong> una clase no entra accidentalmente en el contexto solo por llevar una anotación estereotipo y encontrarse dentro del paquete escaneado.</li>
+<li><strong>Arquitectura más controlable:</strong> Services y Mappers quedan como clases/interfaces Java ordinarias. Spring se concentra en la capa de composición, no invade la definición de cada pieza.</li>
+<li><strong>MapStruct desacoplado de Spring:</strong> los mappers usan <code>@Mapper</code> y se instancian con <code>Mappers.getMapper(...)</code>. El contrato de mapping ya no depende del component model de Spring.</li>
+<li><strong>Wiring determinista:</strong> las dependencias se ven como parámetros de cada método <code>@Bean</code>, facilitando revisión y diagnóstico de ciclos o duplicados.</li>
+<li><strong>Coherencia entre arquitecturas:</strong> la regla se aplica desde un punto común. Esto encaja con el aprendizaje histórico del repositorio: los cambios duplicados entre <code>templates.py</code> y <code>ports_templates.py</code> ya provocaron derivas y motivaron el refactor DRY de <code>shared_templates.py</code>.</li>
+<li><strong>Mejor base para reglas futuras:</strong> al estar codificada en el generador, la convención deja de depender de que una persona o agente recuerde aplicarla manualmente.</li>
+</ul>
+</section>
+<section class="tradeoff">
+<h2>Decisiones y trade-offs</h2>
+<ul>
+<li><code>@RestController</code> se conserva: Spring MVC necesita identificar el handler. Para evitar doble registro, <code>CrudApplication</code> excluye los controllers del component scan y el bean explícito aporta la instancia.</li>
+<li>Los repositorios Spring Data no se cambian: su generación mediante proxies de Spring Data sigue siendo una capacidad del framework, no un Service/Mapper/Controller de la aplicación.</li>
+<li>En hexagonal/clean ya existía <code>UseCaseConfiguration</code> para el Service. La generación detecta clases ya construidas por configuraciones existentes y evita crear un bean duplicado.</li>
+<li>Los persistence adapters siguen con su mecanismo actual porque no formaban parte de la regla solicitada.</li>
+<li>La configuración generada crece con el número de entidades, pero ese crecimiento es explícito y generado automáticamente; no añade trabajo manual al consumidor del CRUD.</li>
+</ul>
+</section>
+<section class="verify">
+<h2>Implementación y verificación</h2>
+<p><strong>Commit 0ed8cad:</strong> añade la política central en <code>writer.py</code>: transformación de anotaciones, exclusión de controllers del scan, descubrimiento de dependencias y regeneración de <code>GeneratedBeanConfiguration.java</code>.</p>
+<p><strong>Commit afd3034:</strong> añade <code>tests/test_explicit_bean_registration.py</code>. Comprueba que mapper/service/controller quedan registrados mediante beans y que un Service ya creado por <code>UseCaseConfiguration</code> no se duplica.</p>
+<p>Además se realizó un smoke test local del writer con un CRUD mínimo: el resultado produjo los tres métodos <code>@Bean</code> esperados, eliminó <code>componentModel="spring"</code> y <code>@Service</code>, y añadió la exclusión de <code>RestController</code> al component scan. La suite Maven completa del repositorio no se ejecutó desde este entorno conectado; la prueba añadida queda preparada para la CI del repositorio.</p>
+</section>
+<section>
+<h2>Historial Git revisado, commit a commit</h2>
+<p class="note">La lectura combina el historial canónico ya mantenido en <code>informes/historial-commits.html</code> con el historial actual de GitHub. Los commits puramente documentales se incluyen porque forman parte de la política de trazabilidad del propio repositorio.</p>
+<table>
+<thead><tr><th>Commit</th><th>Fecha</th><th>Cambio y propósito</th></tr></thead>
+<tbody>
+<tr class="phase"><td colspan="3">Nacimiento y modularización — 10/08/2026</td></tr>
+<tr><td>25a24f4</td><td>10-08</td><td>Versión inicial monolítica del generador CRUD; incluía accidentalmente salida compilada de ejemplo.</td></tr>
+<tr><td>b769e82</td><td>10-08</td><td>Modulariza en <code>crud_generator/</code>, añade <code>.gitignore</code> y primeros tests.</td></tr>
+<tr><td>d390ef0</td><td>10-08</td><td>Introduce tests de aceptación que generan proyectos reales y ejecutan Maven.</td></tr>
+<tr><td>ade9e65</td><td>10-08</td><td>Añade Bean Validation en DTOs y restricciones SQL equivalentes.</td></tr>
+<tr><td>89692d3</td><td>10-08</td><td>Documenta un ejemplo avanzado del DSL.</td></tr>
+<tr><td>51ff2b7</td><td>10-08</td><td>Introduce las arquitecturas layered, hexagonal y clean.</td></tr>
+<tr><td>1c7a9a0</td><td>10-08</td><td>Endurece proyectos para producción: seguridad, paginación, locking optimista, idempotencia y rate limiting.</td></tr>
+<tr><td>1752ae0</td><td>10-08</td><td>Genera documentación técnica HTML dentro de cada proyecto.</td></tr>
+<tr class="phase"><td colspan="3">Modelado real, JSON y robustez — 11/08/2026</td></tr>
+<tr><td>e1fddaf</td><td>11-08</td><td>Soporta decimal con precisión/escala, text, defaults y unicidad compuesta.</td></tr>
+<tr><td>e051e14</td><td>11-08</td><td>Evita superar el límite JVM de 255 parámetros en constructores de entidades muy anchas.</td></tr>
+<tr><td>abd2daf</td><td>11-08</td><td>Crea los primeros informes HTML y documenta la regla del límite de constructor.</td></tr>
+<tr><td>fa12969</td><td>11-08</td><td>Añade filtros por query params y convierte dos errores 500 de entrada inválida en 400.</td></tr>
+<tr><td>ab93031</td><td>11-08</td><td>Añade definición de entidades por JSON para escapar de las limitaciones del DSL textual.</td></tr>
+<tr><td>aa47a56</td><td>11-08</td><td>Corrige propagación de package/endpoints desde JSON a controllers, tests y docs.</td></tr>
+<tr><td>24a768d</td><td>11-08</td><td>Actualiza informes con los nuevos commits y hallazgos.</td></tr>
+<tr><td>f78b643</td><td>11-08</td><td>Genera <code>.env.example</code>/<code>.gitignore</code> y corrige tipos SQL float/double.</td></tr>
+<tr class="phase"><td colspan="3">Multi-entidad, streams, DRY y CI — 12/08/2026</td></tr>
+<tr><td>9264013</td><td>12-08</td><td>Gran ampliación: overwrite guard, migraciones incrementales, CI/observabilidad, enum, relaciones, JSON Schema y Cucumber/Allure.</td></tr>
+<tr><td>a31c7a9</td><td>12-08</td><td>Lleva enum y @ManyToOne también a hexagonal y clean.</td></tr>
+<tr><td>dce591b</td><td>12-08</td><td>Añade lado inverso @OneToMany y filtro por referencia.</td></tr>
+<tr><td>0b700a0</td><td>12-08</td><td>Conecta el modo <code>--stream</code> para Kafka Streams.</td></tr>
+<tr><td>afd205b</td><td>12-08</td><td>Corrige listeners Kafka y runtime Docker/RocksDB del proyecto stream generado.</td></tr>
+<tr><td>861694e</td><td>12-08</td><td>Cambia CLAUDE.md: cada commit debe quedar explicado en el historial HTML.</td></tr>
+<tr><td>af656d7</td><td>12-08</td><td>Documenta los commits de Kafka y la nueva regla de informes.</td></tr>
+<tr><td>b0388f6</td><td>12-08</td><td>Evita validar ejemplos stream contra el schema CRUD.</td></tr>
+<tr><td>8400a4c</td><td>12-08</td><td>Extrae <code>shared_templates.py</code> para reducir duplicación layered/ports.</td></tr>
+<tr><td>b327ea0</td><td>12-08</td><td>Documenta el fix de schema y el refactor DRY.</td></tr>
+<tr><td>80010f3</td><td>12-08</td><td>Añade streams passthrough y corrige tombstones NPE/getter hardcodeado.</td></tr>
+<tr><td>4a1e4bf</td><td>12-08</td><td>Documenta el modo passthrough y sus fixes.</td></tr>
+<tr><td>7b0b388</td><td>12-08</td><td>Añade CI al propio generador, aplicando dogfooding de su workflow generado.</td></tr>
+<tr><td>b32837b</td><td>12-08</td><td>Documenta el commit de CI.</td></tr>
+<tr><td>be4dc1d</td><td>12-08</td><td>Añade hook pre-push que exige que commits funcionales aparezcan en el historial.</td></tr>
+<tr><td>1c767c2</td><td>12-08</td><td>Documenta el hook de trazabilidad.</td></tr>
+<tr><td>1cff540</td><td>12-08</td><td>Cierra el pase DRY: unifica GlobalExceptionHandler y cubre un hueco de tests en ports.</td></tr>
+<tr><td>e11193b</td><td>12-08</td><td>Documenta el cierre del pase DRY.</td></tr>
+<tr><td>13bb512</td><td>12-08</td><td>Corrige CI instalando pytest desde requirements-dev.</td></tr>
+<tr><td>9105c55</td><td>12-08</td><td>Documenta el fix de CI.</td></tr>
+<tr><td>4ae4eb8</td><td>12-08</td><td>Añade ejemplos que cubren tipos/validaciones, referencia reflexiva, clean y stream sin filtro.</td></tr>
+<tr><td>2481ed7</td><td>12-08</td><td>Documenta los ejemplos nuevos.</td></tr>
+<tr class="phase"><td colspan="3">Batch, publicación y asistente — 15–16/08/2026</td></tr>
+<tr><td>4c33713</td><td>15-08</td><td>Integra el generador Spring Batch en el CLI como <code>--batch</code>.</td></tr>
+<tr><td>8112e79</td><td>15-08</td><td>Documenta la integración batch.</td></tr>
+<tr><td>3d1c1e4</td><td>16-08</td><td>Hace batch genérico, añade publicación GitHub y endpoints personalizados; corrige Cucumber ports.</td></tr>
+<tr><td>b5ac28d</td><td>16-08</td><td>Documenta el commit anterior.</td></tr>
+<tr><td>87446b2</td><td>16-08</td><td>Añade <code>--verify</code> para ejecutar y diagnosticar la build generada.</td></tr>
+<tr><td>100bc6d</td><td>16-08</td><td>Documenta <code>--verify</code>.</td></tr>
+<tr><td>cedd63d</td><td>16-08</td><td>Añade <code>--remember</code> para persistir convenciones locales.</td></tr>
+<tr><td>b7f0eac</td><td>16-08</td><td>Documenta <code>--remember</code>.</td></tr>
+<tr><td>f0eeea4</td><td>16-08</td><td>Añade <code>--wizard</code>, asistente interactivo.</td></tr>
+<tr><td>262818a</td><td>16-08</td><td>Documenta el wizard.</td></tr>
+<tr><td>b2d5db0</td><td>16-08</td><td>Empieza gestión de repos CRUD mediante Argo CD.</td></tr>
+<tr><td>63086fa</td><td>16-08</td><td>Incorpora photos-sync a Argo CD.</td></tr>
+<tr><td>619771a</td><td>16-08</td><td>Crea proyecto Argo dedicado para photos-sync.</td></tr>
+<tr><td>3bb5c8f</td><td>16-08</td><td>Añade proyecto Argo CD dedicado para renta-form.</td></tr>
+<tr><td>2cd12f1</td><td>16-08</td><td>Merge de la integración Argo de renta-form.</td></tr>
+<tr class="phase"><td colspan="3">GitOps, Kafka y limpieza — 18–19/08/2026</td></tr>
+<tr><td>f60684b</td><td>18-08</td><td>Añade una aplicación Kafka compartida en Argo CD.</td></tr>
+<tr><td>f6c020c</td><td>18-08</td><td>Añade contratos Avro a los streams generados.</td></tr>
+<tr><td>9d1f83a</td><td>18-08</td><td>Incorpora google-trends-scraper al ApplicationSet.</td></tr>
+<tr><td>8c0f3db</td><td>18-08</td><td>Retira google-trends-scraper del ApplicationSet antes de borrar el repo.</td></tr>
+<tr><td>4167e2b</td><td>19-08</td><td>Incorpora crud-dividendos-hexagonal al ecosistema Argo CD.</td></tr>
+<tr><td>5276f7d</td><td>19-08</td><td>Documenta el onboarding de dividendos.</td></tr>
+<tr><td>7a0d562</td><td>19-08</td><td>Corrige pluralización para entidades cuyo nombre ya termina en s.</td></tr>
+<tr><td>d0749d4</td><td>19-08</td><td>Documenta el fix de pluralización.</td></tr>
+<tr><td>c245789</td><td>19-08</td><td>No genera escenario Cucumber de required fields cuando la entidad no tiene ninguno.</td></tr>
+<tr><td>4ee375e</td><td>19-08</td><td>Documenta el fix Cucumber.</td></tr>
+<tr><td>2668665</td><td>19-08</td><td>Integra generación/publicación con registro automático en Argo CD.</td></tr>
+<tr><td>d4f6d05</td><td>19-08</td><td>Documenta la integración del orquestador con Argo CD.</td></tr>
+<tr><td>d494609</td><td>19-08</td><td>Retira el repositorio smoke test de Argo CD.</td></tr>
+<tr><td>0c42687</td><td>19-08</td><td>Vacía el ApplicationSet de 12 microservicios crud-* antes de borrarlos.</td></tr>
+<tr><td>b5b3b8f</td><td>19-08</td><td>Documenta la retirada masiva del ApplicationSet.</td></tr>
+<tr><td>341f09f</td><td>19-08</td><td>Retira crud-dividendos-hexagonal del ApplicationSet.</td></tr>
+<tr><td>c1051c0</td><td>19-08</td><td>Segunda limpieza del registro de crud-dividendos-hexagonal.</td></tr>
+<tr><td>4bc9c8a</td><td>19-08</td><td>Configura repos nuevos con permisos de escritura para GitHub Actions.</td></tr>
+<tr><td>b2b3739</td><td>19-08</td><td>Documenta el fix de permisos Actions.</td></tr>
+<tr><td>73ed76a</td><td>19-08</td><td>Revierte Argo CD/Kubernetes del orquestador para devolverle foco a generar y publicar.</td></tr>
+<tr><td>d33d8fb</td><td>19-08</td><td>Documenta la reversión.</td></tr>
+<tr class="phase"><td colspan="3">Perfiles de plataforma, seguridad y despliegue — 20/08/2026</td></tr>
+<tr><td>f534116</td><td>20-08</td><td>Añade perfil de base de datos SQL Server.</td></tr>
+<tr><td>d7d491d</td><td>20-08</td><td>Expone <code>--database sqlserver</code> en el entrypoint.</td></tr>
+<tr><td>318021a</td><td>20-08</td><td>Añade cobertura del perfil SQL Server.</td></tr>
+<tr><td>9cefd5d</td><td>20-08</td><td>Merge de la rama del perfil SQL Server.</td></tr>
+<tr><td>96c0c20</td><td>20-08</td><td>Añade elecciones de Java y base de datos al wizard.</td></tr>
+<tr><td>dd95587</td><td>20-08</td><td>Merge de las opciones Java/database del wizard.</td></tr>
+<tr><td>baae701</td><td>20-08</td><td>Añade perfil de seguridad por rol/permiso de endpoint.</td></tr>
+<tr><td>501639e</td><td>20-08</td><td>Hace que el wizard pregunte roles y permisos para cada endpoint.</td></tr>
+<tr><td>4a53d3d</td><td>20-08</td><td>Genera tests de integración/Cucumber específicos de SQL Server.</td></tr>
+<tr><td>b907fa4</td><td>20-08</td><td>Activa el perfil de tests SQL Server desde CLI.</td></tr>
+<tr><td>62f927e</td><td>20-08</td><td>Activa esos tests desde wizard.</td></tr>
+<tr><td>42728b2</td><td>20-08</td><td>Cubre seguridad por endpoint y tests exclusivos de SQL Server.</td></tr>
+<tr><td>01f17cd</td><td>20-08</td><td>Merge PR #5 de seguridad de endpoints y tests SQL Server.</td></tr>
+<tr><td>ab3e499</td><td>20-08</td><td>Alinea tests del wizard con los nuevos prompts de Java, DB y seguridad.</td></tr>
+<tr><td>3888e4a</td><td>20-08</td><td>Añade selección de entorno y generación opcional de despliegue Argo CD.</td></tr>
+<tr><td>2bb557b</td><td>20-08</td><td>Añade al wizard las elecciones local/deployment.</td></tr>
+<tr><td>5cdc542</td><td>20-08</td><td>Cubre en tests los flujos local y Argo CD del wizard.</td></tr>
+<tr><td>6c2f719</td><td>20-08</td><td>Valida las salidas de despliegue Kubernetes local y Argo CD; era HEAD de main al iniciar este cambio.</td></tr>
+<tr class="phase"><td colspan="3">Cambio actual — registro explícito de beans</td></tr>
+<tr><td>0ed8cad</td><td>20-08</td><td>Codifica la regla: Services/Mappers/Controllers se componen explícitamente mediante <code>@Bean</code> en los proyectos generados.</td></tr>
+<tr><td>afd3034</td><td>20-08</td><td>Añade regresión específica para la política y para evitar duplicar el Service ya configurado en hexagonal/clean.</td></tr>
+</tbody>
+</table>
+</section>
+<section class="good">
+<h2>Conclusión derivada del historial</h2>
+<p>El patrón dominante del repositorio es claro: cuando una regla importa, termina pasando de conocimiento implícito a una garantía ejecutable. Ocurrió con el límite de 255 parámetros, con las pruebas de proyectos generados, con la trazabilidad pre-push, con <code>--verify</code> y con el refactor DRY. Registrar Services, Mappers y Controllers mediante <code>@Bean</code> sigue exactamente esa línea: la arquitectura deja de depender de disciplina manual y pasa a estar impuesta por el propio generador.</p>
+</section>
+</main>
+<footer>crud-automation · Informe generado el 20 de agosto de 2026</footer>
+</body>
+</html>
