@@ -1,6 +1,27 @@
 """Punto de entrada compatible para el generador CRUD."""
 
-from crud_generator.cli import main
+import sys
+
+from crud_generator.database_profiles import (
+    extract_database_argument,
+    install_database_profile,
+)
+
+
+def main(args=None):
+    args = sys.argv[1:] if args is None else list(args)
+    try:
+        args, database = extract_database_argument(args)
+        install_database_profile(database)
+    except ValueError as error:
+        print(f"Error: {error}", file=sys.stderr)
+        return 2
+
+    # Se importa despues de instalar el perfil para que parsing/fields capturen
+    # el mapa de tipos SQL correcto desde el principio.
+    from crud_generator.cli import main as cli_main
+
+    return cli_main(args)
 
 
 if __name__ == "__main__":
