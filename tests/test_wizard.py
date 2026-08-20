@@ -11,6 +11,7 @@ class RunWizardTest(unittest.TestCase):
         with self.assertRaisesRegex(DefinitionError, "terminal interactiva"):
             run_wizard()
 
+    @patch("crud_generator.wizard.configure_deployment", return_value={"argocd": False})
     @patch("crud_generator.wizard.install_endpoint_security")
     @patch("crud_generator.wizard.ask_endpoint_security", return_value=[])
     @patch("crud_generator.wizard.generate_project", return_value="crud-producto")
@@ -23,10 +24,12 @@ class RunWizardTest(unittest.TestCase):
         generate_project,
         ask_endpoint_security,
         install_endpoint_security,
+        configure_deployment,
     ):
         mock_input.side_effect = [
             "",                         # Java -> 21 por defecto
             "",                         # DB -> PostgreSQL por defecto
+            "",                         # entorno -> local por defecto
             "Producto",                 # nombre de la entidad
             "id:int,nombre:string",     # campos
             "",                         # arquitectura -> default (layered)
@@ -60,7 +63,16 @@ class RunWizardTest(unittest.TestCase):
             base_package="com.example.crud", endpoints=None, overwrite=False,
             custom_endpoints=None,
         )
+        configure_deployment.assert_called_once_with(
+            "crud-producto",
+            "producto",
+            environment="local",
+            use_argocd=False,
+            namespace=None,
+            gitops_repo=None,
+        )
 
+    @patch("crud_generator.wizard.configure_deployment", return_value={"argocd": False})
     @patch("crud_generator.wizard.install_endpoint_security")
     @patch("crud_generator.wizard.ask_endpoint_security", return_value=[])
     @patch("crud_generator.wizard.generate_project", return_value="crud-tarea-hexagonal")
@@ -73,10 +85,12 @@ class RunWizardTest(unittest.TestCase):
         generate_project,
         ask_endpoint_security,
         install_endpoint_security,
+        configure_deployment,
     ):
         mock_input.side_effect = [
             "21",                           # Java 21
             "postgresql",                   # PostgreSQL
+            "local",                        # entorno local
             "Tarea",                        # entidad
             "id:int,titulo:string",         # campos
             "hexagonal",                    # arquitectura
@@ -125,7 +139,16 @@ class RunWizardTest(unittest.TestCase):
             "Tarea", ["list", "get", "create"], custom_endpoints
         )
         install_endpoint_security.assert_called_once_with([])
+        configure_deployment.assert_called_once_with(
+            "crud-tarea-hexagonal",
+            "tarea",
+            environment="local",
+            use_argocd=False,
+            namespace=None,
+            gitops_repo=None,
+        )
 
+    @patch("crud_generator.wizard.configure_deployment", return_value={"argocd": False})
     @patch("crud_generator.wizard.install_endpoint_security")
     @patch("crud_generator.wizard.ask_endpoint_security", return_value=[])
     @patch("crud_generator.wizard.sys.stdin.isatty", return_value=True)
@@ -136,10 +159,12 @@ class RunWizardTest(unittest.TestCase):
         isatty,
         ask_endpoint_security,
         install_endpoint_security,
+        configure_deployment,
     ):
         mock_input.side_effect = [
             "",                          # Java -> 21
             "",                          # DB -> PostgreSQL
+            "",                          # entorno -> local
             "no-valido",                 # invalido: contiene guion
             "Producto",                  # valido
             "id:int",                    # campos
@@ -156,7 +181,9 @@ class RunWizardTest(unittest.TestCase):
         self.assertEqual("crud-producto", base_dir)
         ask_endpoint_security.assert_called_once_with("Producto", None, None)
         install_endpoint_security.assert_called_once_with([])
+        configure_deployment.assert_called_once()
 
+    @patch("crud_generator.wizard.configure_deployment", return_value={"argocd": False})
     @patch("crud_generator.wizard.install_endpoint_security")
     @patch("crud_generator.wizard.ask_endpoint_security", return_value=[])
     @patch("crud_generator.wizard._install_java_version")
@@ -175,10 +202,12 @@ class RunWizardTest(unittest.TestCase):
         install_java_version,
         ask_endpoint_security,
         install_endpoint_security,
+        configure_deployment,
     ):
         mock_input.side_effect = [
             "17",
             "sqlserver",
+            "local",
             "Factura",
             "id:int,numero:string",
             "",
@@ -197,6 +226,57 @@ class RunWizardTest(unittest.TestCase):
         ask_endpoint_security.assert_called_once_with("Factura", ["list", "get"], None)
         install_endpoint_security.assert_called_once_with([])
         generate_project.assert_called_once()
+        configure_deployment.assert_called_once_with(
+            "crud-factura",
+            "factura",
+            environment="local",
+            use_argocd=False,
+            namespace=None,
+            gitops_repo=None,
+        )
+
+    @patch("crud_generator.wizard.configure_deployment", return_value={"argocd": True})
+    @patch("crud_generator.wizard.install_endpoint_security")
+    @patch("crud_generator.wizard.ask_endpoint_security", return_value=[])
+    @patch("crud_generator.wizard.generate_project", return_value="crud-pedido")
+    @patch("crud_generator.wizard.sys.stdin.isatty", return_value=True)
+    @patch("builtins.input")
+    def test_dev_environment_can_enable_argocd(
+        self,
+        mock_input,
+        isatty,
+        generate_project,
+        ask_endpoint_security,
+        install_endpoint_security,
+        configure_deployment,
+    ):
+        mock_input.side_effect = [
+            "21",
+            "postgresql",
+            "dev",
+            "Pedido",
+            "id:int,numero:string",
+            "",
+            "list,get",
+            "n",
+            "",
+            "pedidos-dev",
+            "s",
+            "https://github.com/acme/pedidos-gitops.git",
+            "n", "n", "n", "n",
+        ]
+
+        result = run_wizard()
+
+        self.assertEqual("crud-pedido", result[0])
+        configure_deployment.assert_called_once_with(
+            "crud-pedido",
+            "pedido",
+            environment="dev",
+            use_argocd=True,
+            namespace="pedidos-dev",
+            gitops_repo="https://github.com/acme/pedidos-gitops.git",
+        )
 
 
 if __name__ == "__main__":
