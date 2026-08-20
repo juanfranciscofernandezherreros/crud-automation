@@ -1,16 +1,9 @@
-"""Asistente interactivo: hace antes de generar las preguntas que hacen
-falta para un uso "profesional" del generador (arquitectura, endpoints,
-paquete, si hace falta un endpoint de negocio propio...) en vez de exigir
-que ya vengan resueltas en flags o en un JSON.
-
-Solo recopila respuestas y genera el proyecto -- el resto del ciclo
-(verificar/publicar/recordar convenciones) lo sigue haciendo cli.main() con
-sus propios helpers, exactamente igual que en el modo de flags, para que
-ambos caminos se comporten de forma idéntica una vez generado."""
+"""Asistente interactivo para generar proyectos CRUD de forma guiada."""
 
 import sys
 
 from .architectures import ARCHITECTURES, normalize_architecture
+from .database_profiles import install_database_profile
 from .generator import generate_project
 from .parsing import (
     VALID_ENDPOINTS,
@@ -21,6 +14,9 @@ from .parsing import (
     parse_attributes,
 )
 
+JAVA_VERSIONS = ("17", "21")
+DATABASES = ("postgresql", "sqlserver")
+
 
 def _yes_no(prompt, default=False):
     suffix = "S/n" if default else "s/N"
@@ -28,6 +24,49 @@ def _yes_no(prompt, default=False):
     if not raw:
         return default
     return raw in ("s", "si", "sí", "y", "yes")
+
+
+def _ask_choice(label, choices, default):
+    print(f"{label}:")
+    for index, choice in enumerate(choices, start=1):
+        marker = " (por defecto)" if choice == default else ""
+        print(f"  {index}. {choice}{marker}")
+    while True:
+        raw = input(f"Selecciona una opción [{default}]: ").strip().lower()
+        if not raw:
+            return default
+        if raw.isdigit() and 1 <= int(raw) <= len(choices):
+            return choices[int(raw) - 1]
+        if raw in choices:
+            return raw
+        print(f"  Opción no válida. Usa: {', '.join(choices)}")
+
+
+def _ask_java_version():
+    return _ask_choice("Versión de Java", JAVA_VERSIONS, "21")
+
+
+def _ask_database():
+    return _ask_choice("Base de datos", DATABASES, "postgresql")
+
+
+def _install_java_version(java_version):
+    """Adapta las plantillas Maven y Docker a Java 17 o 21 para esta ejecución."""
+    if java_version not in JAVA_VERSIONS:
+        raise DefinitionError(f"Versión Java no soportada: {java_version}")
+
+    from . import templates
+
+    original_get_pom_xml = templates.get_pom_xml
+
+    def get_pom_xml(name):
+        pom = original_get_pom_xml(name)
+        return pom.replace("<java.version>21</java.version>", f"<java.version>{java_version}</java.version>")
+
+    templates.get_pom_xml = get_pom_xml
+    templates.DOCKERFILE = templates.DOCKERFILE.replace(
+        "eclipse-temurin-21", f"eclipse-temurin-{java_version}"
+    )
 
 
 def _ask_entity_name():
@@ -102,9 +141,6 @@ def _ask_endpoint_field_list(label):
 
 
 def _ask_custom_endpoints():
-    """CRUD de negocio fuera del molde fijo (list/get/create/update/patch/
-    delete): el generador no puede inventar la lógica, así que solo se
-    scaffolds -- ver parsing.normalize_custom_endpoints."""
     raw_endpoints = []
     while _yes_no("¿Añadir un endpoint personalizado (fuera del CRUD)?", default=False):
         name = input("  Nombre (p.ej. finalizar): ").strip()
@@ -123,14 +159,15 @@ def _ask_custom_endpoints():
     return normalize_custom_endpoints(raw_endpoints)
 
 
-def _print_fixed_infrastructure_notice():
-    """Preguntas de la sesión "qué preguntarme para uso profesional" que el
-    generador no puede resolver con una respuesta -- son fijas en las
-    plantillas. Se informan en vez de preguntarse, para que se sepa antes de
-    generar si encajan con la infraestructura real."""
+def _print_infrastructure_notice(java_version, database):
     print()
-    print("Infraestructura fija en las plantillas generadas (no configurable aquí):")
-    print("  - Base de datos: PostgreSQL (Flyway, tipos, todo asume Postgres).")
+    print("Configuración seleccionada:")
+    print(f"  - Java: {java_version}")
+    print(f"  - Base de datos: {database}")
+    if database == "sqlserver":
+        print("  - SQL Server: JDBC + Flyway + Testcontainers + HikariCP.")
+    else:
+        print("  - PostgreSQL: JDBC + Flyway + Testcontainers.")
     print("  - CI: GitHub Actions (.github/workflows/ci.yml).")
     print("  - Seguridad: HTTP Basic con roles USER/ADMIN.")
     print("  - Observabilidad: Prometheus + Loki + Grafana en docker-compose.yml.")
@@ -138,11 +175,7 @@ def _print_fixed_infrastructure_notice():
 
 
 def run_wizard(conventions=None):
-    """Ejecuta el asistente y genera el proyecto resultante. Devuelve
-    (base_dir, verify, push_github, repo_name, private, remember,
-    architecture, base_package, endpoints) para que cli.main() complete el
-    ciclo post-generación (verificar/publicar/recordar) con sus propios
-    helpers, igual que en el modo de flags."""
+    """Ejecuta el asistente y genera el proyecto resultante."""
     if not sys.stdin.isatty():
         raise DefinitionError(
             "--wizard necesita una terminal interactiva; usa los flags "
@@ -150,6 +183,16 @@ def run_wizard(conventions=None):
         )
 
     conventions = conventions or {}
+
+    # Estas decisiones se toman antes de parsear campos y generar archivos para
+    # que el perfil SQL y las plantillas Maven/Docker sean coherentes entre sí.
+    java_version = _ask_java_version()
+    database = _ask_database()
+    try:
+        install_database_profile(database)
+    except ValueError as error:
+        raise DefinitionError(str(error)) from error
+    _install_java_version(java_version)
 
     entity_name = _ask_entity_name()
     attrs_str = _ask_fields()
@@ -160,7 +203,7 @@ def run_wizard(conventions=None):
     default_package = conventions.get("package") or "com.example.crud"
     base_package = input(f"Paquete base [{default_package}]: ").strip() or default_package
 
-    _print_fixed_infrastructure_notice()
+    _print_infrastructure_notice(java_version, database)
 
     overwrite = _yes_no("¿Sobrescribir si el directorio ya existe?", default=False)
     verify = _yes_no("¿Ejecutar 'mvn verify' tras generar?", default=False)
@@ -183,7 +226,7 @@ def run_wizard(conventions=None):
         custom_endpoints=custom_endpoints,
     )
     print(
-        f"Proyecto {base_dir} generado con éxito, "
+        f"Proyecto {base_dir} generado con éxito con Java {java_version} y {database}, "
         "incluyendo todas las capas, tests y docs/index.html."
     )
 
