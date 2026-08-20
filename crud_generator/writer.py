@@ -7,10 +7,7 @@ from pathlib import Path
 
 _MAIN_JAVA_MARKER = os.path.join("src", "main", "java")
 _PACKAGE_RE = re.compile(r"^package\s+([\w.]+);", re.MULTILINE)
-_IMPORT_RE = re.compile(r"^import\s+([\w.]+);", re.MULTILINE)
 _CLASS_RE = re.compile(r"public\s+class\s+(\w+)")
-_FINAL_FIELD_RE = re.compile(r"private\s+final\s+([\w.$<>?, ]+)\s+(\w+)\s*;")
-_CONSTRUCTOR_RE = re.compile(r"public\s+(\w+)\s*\((.*?)\)\s*\{", re.DOTALL)
 _NEW_TYPE_RE = re.compile(r"new\s+([\w.]+)\s*\(")
 
 
@@ -23,6 +20,13 @@ def _project_root(path):
 
 
 def _transform_java_source(path, content):
+    """Aplica la politica de registro explicito antes de escribir Java.
+
+    Los mappers y services dejan de registrarse por component scanning. Los
+    controllers conservan @RestController por su semantica MVC, pero la clase
+    principal excluye esa anotacion del component scan para que sus instancias
+    procedan exclusivamente de GeneratedBeanConfiguration.
+    """
     filename = os.path.basename(path)
 
     if filename.endswith("Mapper.java"):
@@ -57,58 +61,16 @@ def _read_package(content):
     return match.group(1) if match else None
 
 
-def _import_map(content):
-    imports = {}
-    for qualified in _IMPORT_RE.findall(content):
-        imports[qualified.rsplit(".", 1)[-1]] = qualified
-    return imports
-
-
-def _qualify_declared_type(field_type, imports):
-    clean = field_type.strip()
-    simple = re.sub(r"<.*>", "", clean).strip()
-    qualified = imports.get(simple)
-    if qualified:
-        return clean.replace(simple, qualified, 1)
-    return clean
-
-
-def _constructor_dependencies(content, class_name):
-    imports = _import_map(content)
-    match = _CONSTRUCTOR_RE.search(content)
-    if match and match.group(1) == class_name:
-        params = []
-        raw = match.group(2).strip()
-        if raw:
-            for parameter in raw.split(","):
-                pieces = parameter.strip().split()
-                if len(pieces) >= 2:
-                    field_type = _qualify_declared_type(" ".join(pieces[:-1]), imports)
-                    params.append((field_type, pieces[-1]))
-        return params
-
-    return [
-        (_qualify_declared_type(field_type.strip(), imports), name)
-        for field_type, name in _FINAL_FIELD_RE.findall(content)
-    ]
-
-
 def _bean_method_name(class_name):
     return class_name[:1].lower() + class_name[1:]
 
 
-def _qualified_type(field_type, type_packages):
-    clean = field_type.strip()
-    simple = re.sub(r"<.*>", "", clean).strip()
-    if "." in simple or simple.startswith("java."):
-        return clean
-    qualified = type_packages.get(simple)
-    if qualified:
-        return clean.replace(simple, qualified, 1)
-    return clean
-
-
 def _existing_instantiated_types(java_root):
+    """Tipos ya construidos por configuraciones escritas por el generador.
+
+    Hexagonal/clean, por ejemplo, crean el servicio desde UseCaseConfiguration.
+    No se debe generar un segundo @Bean para el mismo tipo.
+    """
     instantiated = set()
     for path in java_root.rglob("*.java"):
         if "configuration" not in path.parts or path.name == "GeneratedBeanConfiguration.java":
@@ -120,25 +82,13 @@ def _existing_instantiated_types(java_root):
 
 
 def _collect_candidates(java_root):
+    """Localiza mappers, services y controllers que deben ser @Bean.
+
+    Deliberadamente no intenta reconstruir constructores ni resolver imports.
+    Esa aproximacion era fragil con Lombok, genericos y dependencias externas.
+    La resolucion real del constructor se delega al BeanFactory de Spring.
+    """
     candidates = []
-    type_packages = {}
-
-    for path in java_root.rglob("*.java"):
-        if path.name == "GeneratedBeanConfiguration.java":
-            continue
-        content = path.read_text(encoding="utf-8")
-        package = _read_package(content)
-        if not package:
-            continue
-
-        class_match = _CLASS_RE.search(content)
-        if class_match:
-            type_packages[class_match.group(1)] = f"{package}.{class_match.group(1)}"
-        elif "public interface " in content:
-            interface_match = re.search(r"public\s+interface\s+(\w+)", content)
-            if interface_match:
-                type_packages[interface_match.group(1)] = f"{package}.{interface_match.group(1)}"
-
     instantiated = _existing_instantiated_types(java_root)
 
     for path in java_root.rglob("*.java"):
@@ -152,8 +102,7 @@ def _collect_candidates(java_root):
         if path.name.endswith("Mapper.java") and "@Mapper" in content:
             interface_match = re.search(r"public\s+interface\s+(\w+)", content)
             if interface_match:
-                class_name = interface_match.group(1)
-                candidates.append(("mapper", package, class_name, []))
+                candidates.append(("mapper", package, interface_match.group(1)))
             continue
 
         class_match = _CLASS_RE.search(content)
@@ -162,17 +111,15 @@ def _collect_candidates(java_root):
         class_name = class_match.group(1)
 
         if "@RestController" in content:
-            candidates.append(
-                ("controller", package, class_name, _constructor_dependencies(content, class_name))
-            )
+            candidates.append(("controller", package, class_name))
             continue
 
-        if (class_name.endswith("Service") or class_name.endswith("ServiceImpl")) and class_name not in instantiated:
-            candidates.append(
-                ("service", package, class_name, _constructor_dependencies(content, class_name))
-            )
+        if (
+            class_name.endswith("Service") or class_name.endswith("ServiceImpl")
+        ) and class_name not in instantiated:
+            candidates.append(("service", package, class_name))
 
-    return candidates, type_packages
+    return candidates
 
 
 def _find_application_package(java_root):
@@ -183,11 +130,18 @@ def _find_application_package(java_root):
     return "com.example.crud"
 
 
-def _render_configuration(application_package, candidates, type_packages):
+def _render_configuration(application_package, candidates):
+    """Genera la configuracion explicita de beans.
+
+    Para services/controllers usamos AutowireCapableBeanFactory#createBean.
+    Sigue siendo un @Bean explicito, pero evita que el generador tenga que
+    parsear constructores Java. Spring elige el constructor e inyecta sus
+    dependencias exactamente igual que al crear un componente escaneado.
+    """
     methods = []
     seen = set()
 
-    for kind, package, class_name, dependencies in sorted(candidates, key=lambda item: item[2]):
+    for kind, package, class_name in sorted(candidates, key=lambda item: item[2]):
         qualified_class = f"{package}.{class_name}"
         method_name = _bean_method_name(class_name)
         if method_name in seen:
@@ -196,22 +150,18 @@ def _render_configuration(application_package, candidates, type_packages):
 
         if kind == "mapper":
             body = (
-                f"    @org.springframework.context.annotation.Bean\n"
+                "    @org.springframework.context.annotation.Bean\n"
                 f"    public {qualified_class} {method_name}() {{\n"
                 f"        return org.mapstruct.factory.Mappers.getMapper({qualified_class}.class);\n"
-                f"    }}"
+                "    }"
             )
         else:
-            params = []
-            args = []
-            for field_type, name in dependencies:
-                params.append(f"{_qualified_type(field_type, type_packages)} {name}")
-                args.append(name)
             body = (
-                f"    @org.springframework.context.annotation.Bean\n"
-                f"    public {qualified_class} {method_name}({', '.join(params)}) {{\n"
-                f"        return new {qualified_class}({', '.join(args)});\n"
-                f"    }}"
+                "    @org.springframework.context.annotation.Bean\n"
+                f"    public {qualified_class} {method_name}(\n"
+                "            org.springframework.beans.factory.config.AutowireCapableBeanFactory beanFactory) {\n"
+                f"        return beanFactory.createBean({qualified_class}.class);\n"
+                "    }"
             )
         methods.append(body)
 
@@ -229,7 +179,7 @@ def _refresh_generated_bean_configuration(project_root):
     if not java_root.is_dir():
         return
 
-    candidates, type_packages = _collect_candidates(java_root)
+    candidates = _collect_candidates(java_root)
     if not candidates:
         return
 
@@ -238,7 +188,7 @@ def _refresh_generated_bean_configuration(project_root):
     config_dir.mkdir(parents=True, exist_ok=True)
     config_file = config_dir / "GeneratedBeanConfiguration.java"
     config_file.write_text(
-        _render_configuration(application_package, candidates, type_packages),
+        _render_configuration(application_package, candidates),
         encoding="utf-8",
     )
 
