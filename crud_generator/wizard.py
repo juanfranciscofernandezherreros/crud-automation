@@ -4,6 +4,7 @@ import sys
 
 from .architectures import ARCHITECTURES, normalize_architecture
 from .database_profiles import install_database_profile
+from .deployment import ENVIRONMENTS, configure_deployment
 from .generator import generate_project
 from .security_profiles import ask_endpoint_security, install_endpoint_security
 from .sqlserver_test_profile import install_sqlserver_test_profile
@@ -50,6 +51,10 @@ def _ask_java_version():
 
 def _ask_database():
     return _ask_choice("Base de datos", DATABASES, "postgresql")
+
+
+def _ask_environment():
+    return _ask_choice("Entorno de destino", ENVIRONMENTS, "local")
 
 
 def _install_java_version(java_version):
@@ -161,16 +166,41 @@ def _ask_custom_endpoints():
     return normalize_custom_endpoints(raw_endpoints)
 
 
-def _print_infrastructure_notice(java_version, database, security_rules):
+def _ask_deployment_options(environment, entity_name):
+    """Recoge opciones Kubernetes/Argo CD. Local siempre usa Docker Compose."""
+    if environment == "local":
+        return False, None, None
+
+    default_namespace = f"{entity_name.lower()}-{environment}"
+    namespace = input(f"Namespace Kubernetes [{default_namespace}]: ").strip() or default_namespace
+    use_argocd = _yes_no("¿Añadir configuración Argo CD?", default=False)
+    gitops_repo = None
+    if use_argocd:
+        while not gitops_repo:
+            gitops_repo = input("  Repositorio GitOps (URL Git): ").strip()
+            if not gitops_repo:
+                print("  Debes indicar el repositorio GitOps para Argo CD.")
+    return use_argocd, namespace, gitops_repo
+
+
+def _print_infrastructure_notice(
+    java_version, database, security_rules, environment, use_argocd
+):
     print()
     print("Configuración seleccionada:")
     print(f"  - Java: {java_version}")
     print(f"  - Base de datos: {database}")
+    print(f"  - Entorno: {environment}")
     if database == "sqlserver":
         print("  - SQL Server: JDBC + Flyway + Testcontainers + HikariCP.")
     else:
         print("  - PostgreSQL: JDBC + Flyway + Testcontainers.")
     print(f"  - Seguridad: roles y permisos configurados en {len(security_rules)} endpoints.")
+    if environment == "local":
+        print("  - Despliegue: Docker Compose local; Kubernetes/Argo CD desactivados.")
+    else:
+        print("  - Despliegue: manifiestos Kubernetes generados.")
+        print(f"  - Argo CD: {'activado' if use_argocd else 'desactivado'}.")
     print("  - CI: GitHub Actions (.github/workflows/ci.yml).")
     print("  - Observabilidad: Prometheus + Loki + Grafana en docker-compose.yml.")
     print()
@@ -188,6 +218,7 @@ def run_wizard(conventions=None):
 
     java_version = _ask_java_version()
     database = _ask_database()
+    environment = _ask_environment()
     try:
         install_database_profile(database)
         if database == "sqlserver":
@@ -206,8 +237,11 @@ def run_wizard(conventions=None):
 
     default_package = conventions.get("package") or "com.example.crud"
     base_package = input(f"Paquete base [{default_package}]: ").strip() or default_package
+    use_argocd, namespace, gitops_repo = _ask_deployment_options(environment, entity_name)
 
-    _print_infrastructure_notice(java_version, database, security_rules)
+    _print_infrastructure_notice(
+        java_version, database, security_rules, environment, use_argocd
+    )
 
     overwrite = _yes_no("¿Sobrescribir si el directorio ya existe?", default=False)
     verify = _yes_no("¿Ejecutar 'mvn verify' tras generar?", default=False)
@@ -229,10 +263,24 @@ def run_wizard(conventions=None):
         base_package=base_package, endpoints=endpoints, overwrite=overwrite,
         custom_endpoints=custom_endpoints,
     )
+    try:
+        deployment = configure_deployment(
+            base_dir,
+            entity_name.lower(),
+            environment=environment,
+            use_argocd=use_argocd,
+            namespace=namespace,
+            gitops_repo=gitops_repo,
+        )
+    except ValueError as error:
+        raise DefinitionError(str(error)) from error
+
     print(
-        f"Proyecto {base_dir} generado con éxito con Java {java_version} y {database}, "
-        "incluyendo seguridad por endpoint, tests y docs/index.html."
+        f"Proyecto {base_dir} generado con éxito con Java {java_version}, {database} "
+        f"y entorno {environment}, incluyendo seguridad por endpoint, tests y docs/index.html."
     )
+    if deployment["argocd"]:
+        print("Configuración Argo CD generada en deploy/argocd/application.yaml.")
 
     return (
         base_dir, verify, push_github, repo_name, private, remember,
