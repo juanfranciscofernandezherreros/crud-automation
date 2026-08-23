@@ -56,6 +56,10 @@ def generate_project(
     entity_name = normalize_entity_name(entity_name)
     architecture = normalize_architecture(architecture)
     base_package = base_package or DEFAULT_BASE_PACKAGE
+    if architecture == "minimal":
+        from .minimal_generator import generate_minimal_project
+
+        return generate_minimal_project(entity_name, base_package, overwrite)
     if architecture in PORTS_ARCHITECTURES:
         from .ports_generator import generate_ports_project_from_attrs
 
@@ -88,6 +92,11 @@ def generate_project_from_json(json_path, architecture_override=None, overwrite=
         architecture = normalize_architecture(
             architecture_override or architecture_from_json or "layered"
         )
+        if architecture == "minimal":
+            raise DefinitionError(
+                "La arquitectura 'minimal' no soporta multi-entidad ('entities'): "
+                "no genera CRUD, solo un esqueleto de un unico servicio."
+            )
         base_package = base_package or DEFAULT_BASE_PACKAGE
         command_hint = f"__JSON__:{json_path}"
         if architecture in PORTS_ARCHITECTURES:
@@ -114,6 +123,10 @@ def generate_project_from_json(json_path, architecture_override=None, overwrite=
         architecture_override or architecture_from_json or "layered"
     )
     base_package = base_package or DEFAULT_BASE_PACKAGE
+    if architecture == "minimal":
+        from .minimal_generator import generate_minimal_project
+
+        return generate_minimal_project(entity_name, base_package, overwrite)
     command_hint = f"__JSON__:{json_path}"
     if architecture in PORTS_ARCHITECTURES:
         from .ports_generator import generate_ports_project_from_attrs

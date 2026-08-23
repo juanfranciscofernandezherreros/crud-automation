@@ -304,11 +304,11 @@ def main(args=None):
     if len(args) < 2:
         print(
             "Uso: python generate_crud.py <Entidad> <attr:tipo,...> "
-            "[--architecture layered|hexagonal|clean] [--force]"
+            "[--architecture layered|hexagonal|clean|minimal] [--force]"
         )
         print(
             "  o: python generate_crud.py --json <definicion.json> "
-            "[--architecture layered|hexagonal|clean] [--force]"
+            "[--architecture layered|hexagonal|clean|minimal] [--force]"
         )
         print(
             "  o: python generate_crud.py --stream <definicion.json> [--force]"

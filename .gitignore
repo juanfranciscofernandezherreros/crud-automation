@@ -14,3 +14,8 @@ htmlcov/
 # Entornos virtuales
 .venv/
 venv/
+
+# Empaquetado
+dist/
+build/
+*.egg-info/

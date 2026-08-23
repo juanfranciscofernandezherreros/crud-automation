@@ -48,6 +48,14 @@ python .\generate_crud.py Producto `
 | `layered` | Controller, service, repository y entity | `crud-producto/` |
 | `hexagonal` | Dominio, puertos y adaptadores | `crud-producto-hexagonal/` |
 | `clean` | Entidades, casos de uso, gateways, adapters y frameworks | `crud-producto-clean/` |
+| `minimal` | Solo `app/`: un endpoint, sin BD/seguridad/observabilidad | `crud-producto-minimal/` |
+
+`minimal` no genera CRUD: ignora los campos y produce el mismo esqueleto
+que [hello-world-argocd](https://github.com/juanfranciscofernandezherreros/hello-world-argocd)
+(Spring Boot + Docker, un unico `GET /<entidad>` de comprobacion), pensado
+como base para un microservicio nuevo que se va a desplegar por GitOps —
+todas las entidades generadas asi comparten exactamente la misma
+estructura de carpetas, para darlas de alta en Argo sin sorpresas.
 
 En hexagonal y clean, el servicio de aplicacion es Java puro: no contiene
 anotaciones ni tipos de Spring. Las transacciones quedan en el adaptador de

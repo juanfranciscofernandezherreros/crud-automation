@@ -10,8 +10,8 @@
   "definitions": {
     "architecture": {
       "type": "string",
-      "enum": ["layered", "hexagonal", "clean"],
-      "description": "Por defecto 'layered'. Valido tanto para una entidad como para 'entities' (multi-entidad con relaciones)."
+      "enum": ["layered", "hexagonal", "clean", "minimal"],
+      "description": "Por defecto 'layered'. Valido tanto para una entidad como para 'entities' (multi-entidad con relaciones). 'minimal' solo vale para una entidad: ignora 'fields' y genera un esqueleto Spring Boot + Docker sin base de datos, sin seguridad y sin observabilidad, listo para GitOps."
     },
     "package": {
       "type": "string",

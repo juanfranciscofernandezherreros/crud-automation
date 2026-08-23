@@ -19,7 +19,7 @@ class PortsArchitecture:
     exception_package: str
 
 
-ARCHITECTURES = ("layered", "hexagonal", "clean")
+ARCHITECTURES = ("layered", "hexagonal", "clean", "minimal")
 
 DEFAULT_BASE_PACKAGE = "com.example.crud"
 
@@ -59,7 +59,10 @@ PORTS_ARCHITECTURES = build_ports_architectures()
 
 def normalize_architecture(value):
     architecture = value.strip().lower()
-    aliases = {"capas": "layered", "hex": "hexagonal", "limpia": "clean"}
+    aliases = {
+        "capas": "layered", "hex": "hexagonal", "limpia": "clean",
+        "minima": "minimal", "mínima": "minimal",
+    }
     architecture = aliases.get(architecture, architecture)
     if architecture not in ARCHITECTURES:
         choices = ", ".join(ARCHITECTURES)
