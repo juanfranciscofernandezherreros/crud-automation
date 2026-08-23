@@ -262,6 +262,14 @@
     <div class="stat">7 ficheros · <b>+59 / -43</b> líneas</div>
   </div>
 
+  <div class="commit">
+    <div class="meta"><span class="hash">2814363</span><span class="date">2026-08-23</span><span class="tag feat">feature</span></div>
+    <h2>feat: arquitectura minimal + empaquetado como paquete Python (0.1.0)</h2>
+    <p>El usuario pidió que el generador pudiera crear microservicios "con la estructura de hello-world-argocd" (repo GitOps hecho a mano fuera de este proyecto: solo <code>app/</code>, Spring Boot + Docker, sin base de datos ni observabilidad). Tras confirmar el alcance con el usuario, se implementó como una cuarta arquitectura (<code>--architecture minimal</code>) en vez de un flag aparte: se anadió al enum de <code>architectures.py</code>, al JSON schema, y un nuevo <code>minimal_generator.py</code> que ignora por completo <code>fields</code>/<code>attrs</code> — no genera CRUD, solo el esqueleto (pom, Application, un Controller con un unico endpoint, Dockerfile, test), nombrando el proyecto <code>crud-&lt;entidad&gt;-minimal</code>. <code>generate_project()</code> y <code>generate_project_from_json</code> ganan un atajo temprano para esta arquitectura antes de tocar <code>parse_attributes</code>; el modo multi-entidad JSON la rechaza explicitamente (no tiene sentido: no hay CRUD que relacionar). Verificado con una suite nueva (<code>test_minimal_generator.py</code>, 4 tests) mas la suite completa existente en verde.</p>
+    <p>Segunda pieza de la misma petición: empaquetar el propio generador como paquete Python instalable (<code>pyproject.toml</code>, <code>LICENSE</code> MIT, versión <code>0.1.0</code>, entry point <code>generate-crud</code>). Construido con <code>python -m build</code> e instalado en un venv limpio para confirmar que el wheel resultante importa y expone el comando — no se publicó a PyPI porque esta máquina no tiene credenciales configuradas.</p>
+    <div class="stat">10 ficheros · <b>+409 / -6</b> líneas</div>
+  </div>
+
   <div class="callout">
     Los commits <code>e1fddaf</code> a <code>fa12969</code> son los que motivaron el informe de hallazgos:
     surgieron al usar el generador contra un esquema de producción real en vez de los ejemplos de 3-10 campos
