@@ -38,6 +38,31 @@ class CliTest(unittest.TestCase):
             base_package=None, endpoints=None, overwrite=False,
         )
 
+    @patch("crud_generator.cli.generate_project", return_value="crud-smoke-minimal")
+    def test_minimal_architecture_needs_no_entity_or_fields(self, generate_project):
+        stdout = io.StringIO()
+
+        with contextlib.redirect_stdout(stdout):
+            exit_code = main(["--architecture", "minimal"])
+
+        self.assertEqual(0, exit_code)
+        generate_project.assert_called_once_with(
+            "Smoke", "", "minimal",
+            base_package=None, endpoints=None, overwrite=False,
+        )
+        self.assertIn("esqueleto minimo", stdout.getvalue())
+
+    @patch("crud_generator.cli.generate_project", return_value="crud-godbye-minimal")
+    def test_minimal_architecture_still_accepts_a_name_without_fields(self, generate_project):
+        with contextlib.redirect_stdout(io.StringIO()):
+            exit_code = main(["Godbye", "--architecture", "minimal"])
+
+        self.assertEqual(0, exit_code)
+        generate_project.assert_called_once_with(
+            "Godbye", "", "minimal",
+            base_package=None, endpoints=None, overwrite=False,
+        )
+
     @patch("crud_generator.cli.generate_project", return_value="crud-producto-hexagonal")
     def test_accepts_explicit_architecture(self, generate_project):
         with contextlib.redirect_stdout(io.StringIO()):

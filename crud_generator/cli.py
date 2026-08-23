@@ -301,7 +301,8 @@ def main(args=None):
         _remember_if_requested(remember, architecture)
         return _post_generate(base_dir, verify, push_github, github_repo_name, private)
 
-    if len(args) < 2:
+    effective_architecture = architecture or conventions.get("architecture")
+    if effective_architecture != "minimal" and len(args) < 2:
         print(
             "Uso: python generate_crud.py <Entidad> <attr:tipo,...> "
             "[--architecture layered|hexagonal|clean|minimal] [--force]"
@@ -322,6 +323,10 @@ def main(args=None):
         print(
             'Ejemplo: python generate_crud.py Producto '
             '"id:int, nombre:string, precio:float"'
+        )
+        print(
+            "  o, para un smoke test minimo sin entidad ni campos: "
+            "python generate_crud.py --architecture minimal"
         )
         print(
             "--force regenera un directorio ya existente en vez de fallar; "
@@ -350,8 +355,14 @@ def main(args=None):
     endpoints = conventions.get("endpoints")
     try:
         architecture = architecture or conventions.get("architecture") or choose_architecture()
-        entity_name = normalize_entity_name(args[0])
-        attrs_str = " ".join(args[1:])
+        if architecture == "minimal":
+            # Sin entidad: es un smoke test de que el pipeline despliega, no
+            # un servicio con identidad propia -- "Smoke" por defecto.
+            entity_name = normalize_entity_name(args[0]) if args else "Smoke"
+            attrs_str = " ".join(args[1:]) if len(args) > 1 else ""
+        else:
+            entity_name = normalize_entity_name(args[0])
+            attrs_str = " ".join(args[1:])
         base_dir = generate_project(
             entity_name, attrs_str, architecture,
             base_package=package, endpoints=endpoints, overwrite=force,
@@ -360,9 +371,15 @@ def main(args=None):
         print(f"Error: {error}", file=sys.stderr)
         return 2
 
-    print(
-        f"Proyecto {base_dir} generado con éxito, "
-        "incluyendo todas las capas, tests y docs/index.html."
-    )
+    if architecture == "minimal":
+        print(
+            f"Proyecto {base_dir} generado con éxito: esqueleto minimo "
+            "(sin CRUD, sin BD, sin observabilidad) listo para GitOps."
+        )
+    else:
+        print(
+            f"Proyecto {base_dir} generado con éxito, "
+            "incluyendo todas las capas, tests y docs/index.html."
+        )
     _remember_if_requested(remember, architecture, package, endpoints)
     return _post_generate(base_dir, verify, push_github, github_repo_name, private)

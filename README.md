@@ -57,6 +57,19 @@ como base para un microservicio nuevo que se va a desplegar por GitOps —
 todas las entidades generadas asi comparten exactamente la misma
 estructura de carpetas, para darlas de alta en Argo sin sorpresas.
 
+Es la unica arquitectura que no exige ni entidad ni campos — sirve como
+smoke test de que el pipeline (generar → build → Docker → desplegar)
+funciona, sin que haga falta inventarse un nombre:
+
+```powershell
+python .\generate_crud.py --architecture minimal
+```
+
+Genera `crud-smoke-minimal/` (entidad por defecto `Smoke`). Si se pasa un
+nombre sin campos (`python .\generate_crud.py MiServicio --architecture
+minimal`), se usa ese nombre igual; los campos, si se pasan, se ignoran
+siempre.
+
 En hexagonal y clean, el servicio de aplicacion es Java puro: no contiene
 anotaciones ni tipos de Spring. Las transacciones quedan en el adaptador de
 persistencia y el wiring en `UseCaseConfiguration`.
