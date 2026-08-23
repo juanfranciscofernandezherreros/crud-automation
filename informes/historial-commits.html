@@ -305,6 +305,13 @@
     <div class="stat">10 ficheros · <b>+409 / -6</b> líneas</div>
   </div>
 
+  <div class="commit">
+    <div class="meta"><span class="hash">29a4078</span><span class="date">2026-08-23</span><span class="tag feat">feature</span></div>
+    <h2>feat: --architecture minimal ya no exige entidad ni campos</h2>
+    <p>Petición directa tras generar y desplegar <code>crud-godbyemicroservices-minimal</code>: la arquitectura <code>minimal</code> existe para comprobar que el pipeline entero (generar → build → Docker → desplegar) funciona, no para nombrar un servicio con identidad propia — obligar a escribir una entidad y unos campos que además se ignoran por completo era friccion sin proposito. La puerta de <code>len(args) &lt; 2</code> en <code>cli.py</code> ahora se salta cuando la arquitectura efectiva (explicita o recordada via <code>--remember</code>) es <code>minimal</code>; sin argumentos, la entidad cae a <code>Smoke</code> (genera <code>crud-smoke-minimal/</code>), y si se pasa un nombre sin campos tambien funciona. El resto de arquitecturas no cambian de comportamiento. De paso corrige el mensaje de éxito final, que decia "incluyendo todas las capas, tests y docs/index.html" incluso para <code>minimal</code> — ahora tiene su propio mensaje, coherente con lo que de verdad genera. Verificado generando <code>crud-smoke-minimal</code> sin ningun argumento y con <code>mvn test</code> real en verde sobre el resultado. Suite completa en verde (237 tests + 19 subtests, excluidos los 3 lentos/con fallo preexistente ajenos a este cambio).</p>
+    <div class="stat">3 ficheros · <b>+62 / -7</b> líneas</div>
+  </div>
+
   <div class="callout">
     Los commits <code>e1fddaf</code> a <code>fa12969</code> son los que motivaron el informe de hallazgos:
     surgieron al usar el generador contra un esquema de producción real en vez de los ejemplos de 3-10 campos
