@@ -196,15 +196,28 @@ class CucumberAllureTest(unittest.TestCase):
 
     def test_feature_skips_happy_path_create_when_entity_has_a_reference(self):
         with_reference = templates.get_cucumber_feature(
-            "Pedido", "pedido", ["list", "get", "create"], has_reference=True
+            "Pedido", "pedido", ["list", "get", "create"],
+            has_reference=True, has_required_fields=True,
         )
         without_reference = templates.get_cucumber_feature(
-            "Producto", "producto", ["list", "get", "create"], has_reference=False
+            "Producto", "producto", ["list", "get", "create"],
+            has_reference=False, has_required_fields=True,
         )
 
         self.assertNotIn("Crear un pedido valido", with_reference)
         self.assertIn("Crear un producto valido", without_reference)
         self.assertIn("Crear un pedido sin campos obligatorios", with_reference)
+
+    def test_feature_skips_missing_fields_scenario_when_entity_has_no_required_fields(self):
+        # Con cero campos obligatorios, un cuerpo vacio es una entrada valida
+        # (la API responde 201, no 400): incluir este escenario generaria un
+        # test que siempre falla contra el comportamiento correcto de la API.
+        feature = templates.get_cucumber_feature(
+            "Producto", "producto", ["list", "get", "create"],
+            has_reference=False, has_required_fields=False,
+        )
+
+        self.assertNotIn("sin campos obligatorios", feature)
 
     def test_steps_import_the_java_types_used_by_generated_test_values(self):
         # get_valid_test_value puede emitir BigDecimal/LocalDate/LocalDateTime

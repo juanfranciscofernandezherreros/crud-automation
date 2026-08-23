@@ -262,6 +262,41 @@
     <div class="stat">7 ficheros · <b>+59 / -43</b> líneas</div>
   </div>
 
+  <div class="commit fix">
+    <div class="meta"><span class="hash">c245789</span><span class="date">2026-08-19</span><span class="tag fix">fix</span></div>
+    <h2>fix: omite el escenario Cucumber de alta sin campos obligatorios cuando la entidad no tiene ninguno</h2>
+    <p>Cuando una entidad no tiene ningún campo obligatorio, un body vacío en el alta es una entrada válida (la API responde 201, no 400). <code>get_cucumber_feature()</code> generaba siempre el escenario "crear sin campos obligatorios → 400" para el microservicio generado, produciendo un test que fallaba contra el propio comportamiento correcto de la API. Ahora recibe un flag <code>has_required_fields</code> (propagado desde <code>generator.py</code> y <code>ports_generator.py</code> vía <code>has_required_input(attrs)</code>) y omite tanto el escenario como su step Java cuando la entidad no tiene campos obligatorios.</p>
+    <div class="stat">4 ficheros · <b>+32 / -9</b> líneas</div>
+  </div>
+
+  <div class="commit">
+    <div class="meta"><span class="hash">2668665</span><span class="date">2026-08-19</span><span class="tag feat">feature</span></div>
+    <h2>feat: orchestrate_crud.py engancha el microservicio generado a Argo CD</h2>
+    <p>Petición directa: que el orquestador (generar + publicar en GitHub) tenga un tercer paso que registre el repo recién publicado en Argo CD, en vez de hacerlo a mano como se hizo con <code>crud-dividendos-hexagonal</code>/<code>crud-transferencia-hexagonal</code>. Nuevo módulo <code>crud_generator/gitops.py</code>: genera <code>k8s/*.yaml</code> (namespace, secret, Postgres Service+StatefulSet, Service+Deployment de la app, kustomization) y <code>.github/workflows/gitops.yml</code> (build+push a GHCR y actualización de <code>deployment.yaml</code> con el sha), replicando el patrón ya usado a mano en esos repos; el nombre de la base de datos se lee del <code>docker-compose.yml</code> ya generado en vez de re-derivarlo, para que quede garantizado en sync con lo que la app espera. <code>orchestrate_crud.py</code> encadena ahora: generar → escribir esos manifiestos en el proyecto (para que el primer commit del repo ya los incluya) → publicar en GitHub → correr <code>scripts/update_applicationset.py</code> (el mismo script del workflow programado "Actualizar ApplicationSet") y, si <code>argocd/applicationset.yaml</code> cambió, comitearlo y empujarlo a este repo. Nuevo flag <code>--skip-argocd</code>; con <code>--private</code> se avisa y se salta el paso 3 porque el descubrimiento solo indexa repos públicos. Verificado con una ejecución real de punta a punta (entidad <code>ArgocdSmoke</code>, hexagonal): <code>mvn verify</code> en verde, <code>crud-argocdsmoke-hexagonal</code> publicado con <code>k8s/</code> y <code>gitops.yml</code> ya en el primer commit, su workflow "GitOps image" construyó y publicó la imagen en GHCR y actualizó <code>k8s/deployment.yaml</code> con el sha real, y <code>update_applicationset.py</code> descubrió el repo y agregó su entrada a <code>argocd/applicationset.yaml</code>. Suite completa en verde (236 tests + 27 subtests, incluidos los 10 nuevos de <code>tests/test_gitops.py</code>).</p>
+    <div class="stat">3 ficheros · <b>+649</b> líneas</div>
+  </div>
+
+  <div class="commit">
+    <div class="meta"><span class="hash">0c42687</span><span class="date">2026-08-19</span><span class="tag chore">chore</span></div>
+    <h2>chore: retira los 12 microservicios crud-* del ApplicationSet</h2>
+    <p>Petición directa del usuario: borrar del repositorio todos los microservicios <code>crud-*</code> autogenerados excepto <code>crud-automation</code> (los 12 repos publicados hasta ahora con el generador y enganchados al Argo CD real: <code>crud-articulo</code>, <code>crud-catalogo</code>, <code>crud-crypto-relay</code>, <code>crud-dividendos-hexagonal</code>, <code>crud-empleado-clean</code>, <code>crud-fondoinversion-hexagonal</code>, <code>crud-partidobaloncesto-hexagonal</code>, <code>crud-producto</code>, <code>crud-sales-streams</code>, <code>crud-sensores-stream</code>, <code>crud-transferencia-hexagonal</code>, <code>crud-ventas</code>; se excluyó <code>crud-simple</code>, privado y anterior a este generador). Como <code>syncPolicy.automated.prune</code> está a <code>true</code>, el ApplicationSet se vació primero (<code>elements: []</code>) y se empujó por separado, para que Argo CD dejara de rastrear esos repos de forma controlada <em>antes</em> de borrarlos en GitHub, en vez de dejar que Argo CD encontrara los repos desaparecidos a mitad de una sincronización.</p>
+    <div class="stat">1 fichero · <b>+1 / -25</b> líneas</div>
+  </div>
+
+  <div class="commit fix">
+    <div class="meta"><span class="hash">4bc9c8a</span><span class="date">2026-08-19</span><span class="tag fix">fix</span></div>
+    <h2>fix: push_to_github deja el repo nuevo con permisos de escritura para Actions</h2>
+    <p>Cada repo creado con <code>gh repo create</code> nace con <code>default_workflow_permissions=read</code>, lo que le niega a <code>GITHUB_TOKEN</code> el permiso de escribir aunque el workflow lo pida explícitamente (<code>permissions: packages: write</code>). Con eso, cualquier workflow que publique en GHCR o comitee de vuelta — como <code>.github/workflows/gitops.yml</code>, que genera <code>crud_generator/gitops.py</code> — fallaba siempre en el primer push con <code>denied: permission_denied: write_package</code>, y había que arreglarlo a mano en cada repo nuevo. <code>push_to_github()</code> ahora deja el repo en modo escritura justo después de crearlo (<code>gh api -X PUT .../actions/permissions/workflow</code>), usando el placeholder <code>{owner}</code> de <code>gh api</code> resuelto desde el remote <code>origin</code> que <code>gh repo create --push</code> ya deja configurado en el propio directorio del proyecto. Como <code>createRepo.py</code> y <code>orchestrate_crud.py</code> delegan enteramente en esta función, ambos quedan arreglados sin tocarlos. Verificado con una publicación real (<code>crud-dividendos-hexagonal</code>, regenerado tras el fix): el repo nuevo ya nace con el permiso correcto sin intervención manual, y su workflow "GitOps image" construye y publica la imagen en GHCR sin el error. Suite completa en verde (237 tests + 27 subtests).</p>
+    <div class="stat">2 ficheros · <b>+43</b> líneas</div>
+  </div>
+
+  <div class="commit">
+    <div class="meta"><span class="hash">73ed76a</span><span class="date">2026-08-19</span><span class="tag chore">revert</span></div>
+    <h2>revert: quita la integración con Argo CD/Kubernetes de orchestrate_crud</h2>
+    <p>Petición directa del usuario: este proyecto solo debe generar el microservicio y publicarlo en GitHub, compilando bien — nada de Argo CD ni de <code>kubectl</code>. Borra <code>crud_generator/gitops.py</code> y <code>tests/test_gitops.py</code> (generaban <code>k8s/*.yaml</code> + <code>.github/workflows/gitops.yml</code> para el proyecto generado) y revierte <code>orchestrate_crud.py</code> a sus dos pasos originales: <code>generate_crud.py</code> → <code>createRepo.py</code>. Se retiran el paso 3 (<code>scripts/update_applicationset.py</code>) y el paso 4 (sondeo con <code>kubectl</code> del <code>Application</code> en Argo CD) añadidos en <code>2668665</code>, junto con los flags que solo tenían sentido con ellos. No se toca <code>argocd/</code>, <code>bootstrap/</code> ni <code>scripts/update_applicationset.py</code>: son infraestructura previa a esta sesión que también gestiona <code>photos-sync</code> y <code>renta-form</code>, servicios reales ajenos a este cambio — borrarlos podría hacer que Argo CD los pruneara, dado que la Application <code>crud-platform</code> vigila esa carpeta entera con <code>prune: true</code>.</p>
+    <div class="stat">3 ficheros · <b>+14 / -550</b> líneas</div>
+  </div>
+
   <div class="commit">
     <div class="meta"><span class="hash">2814363</span><span class="date">2026-08-23</span><span class="tag feat">feature</span></div>
     <h2>feat: arquitectura minimal + empaquetado como paquete Python (0.1.0)</h2>

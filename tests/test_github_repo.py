@@ -29,6 +29,7 @@ class PushToGithubTest(unittest.TestCase):
             _ok("M  file.txt"),  # git status --porcelain (hay cambios)
             _ok(),  # git commit
             _ok(),  # gh repo create
+            _ok(),  # gh api ... actions/permissions/workflow
             _ok("https://github.com/user/mi-proyecto"),  # gh repo view
         ]
 
@@ -52,11 +53,38 @@ class PushToGithubTest(unittest.TestCase):
         self.assertIn("mi-proyecto", create_command)
 
     @patch("crud_generator.github_repo.subprocess.run")
+    def test_grants_write_workflow_permissions_after_creating_the_repo(self, run):
+        run.side_effect = [
+            _ok(),  # git init -b main
+            _ok(),  # git add -A
+            _ok(""),  # git status --porcelain
+            _ok(),  # gh repo create
+            _ok(),  # gh api ... actions/permissions/workflow
+            _ok("https://github.com/user/mi-proyecto"),  # gh repo view
+        ]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project_dir = os.path.join(tmp, "mi-proyecto")
+            os.mkdir(project_dir)
+
+            push_to_github(project_dir)
+
+        permissions_call = run.call_args_list[4]
+        command = permissions_call.args[0]
+        self.assertEqual(
+            ["gh", "api", "-X", "PUT", "repos/{owner}/mi-proyecto/actions/permissions/workflow"],
+            command[:5],
+        )
+        self.assertIn("default_workflow_permissions=write", command)
+        self.assertEqual(project_dir, permissions_call.kwargs.get("cwd"))
+
+    @patch("crud_generator.github_repo.subprocess.run")
     def test_skips_git_init_when_already_a_repo(self, run):
         run.side_effect = [
             _ok(),  # git add -A
             _ok(""),  # git status --porcelain (sin cambios)
             _ok(),  # gh repo create
+            _ok(),  # gh api ... actions/permissions/workflow
             _ok("https://github.com/user/mi-proyecto"),  # gh repo view
         ]
 
@@ -81,6 +109,7 @@ class PushToGithubTest(unittest.TestCase):
             _ok(),  # git add -A
             _ok(""),  # git status --porcelain
             _ok(),  # gh repo create
+            _ok(),  # gh api ... actions/permissions/workflow
             _ok("https://github.com/user/priv"),  # gh repo view
         ]
 

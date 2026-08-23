@@ -62,4 +62,18 @@ def push_to_github(project_dir, repo_name=None, private=False, description=None)
         ]
     )
 
+    # Cada repo nuevo nace con las Actions en modo solo lectura
+    # (default_workflow_permissions=read), lo que le niega a GITHUB_TOKEN el
+    # permiso de escritura aunque el workflow lo pida (permissions: packages:
+    # write) -- y con eso, cualquier workflow que publique en GHCR o comitee
+    # de vuelta (como gitops.yml) falla con "denied: permission_denied".
+    _run(
+        [
+            "gh", "api", "-X", "PUT", f"repos/{{owner}}/{repo_name}/actions/permissions/workflow",
+            "-f", "default_workflow_permissions=write",
+            "-F", "can_approve_pull_request_reviews=false",
+        ],
+        cwd=project_dir,
+    )
+
     return _run(["gh", "repo", "view", repo_name, "--json", "url", "-q", ".url"])

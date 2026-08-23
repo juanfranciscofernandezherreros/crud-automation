@@ -298,7 +298,9 @@ def _write_ports_entity(
     has_reference = bool(reference_attrs)
     write_file(
         f"{base_dir}/src/test/resources/features/{entity_lower}.feature",
-        templates.get_cucumber_feature(entity_name, entity_lower, endpoints, has_reference),
+        templates.get_cucumber_feature(
+            entity_name, entity_lower, endpoints, has_reference, has_required_input(attrs)
+        ),
     )
     write_file(
         java_path(test_java, "com.example.crud.cucumber", f"{entity_name}Steps.java"),
