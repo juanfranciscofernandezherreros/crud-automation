@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "crud-automation"
-version = "0.1.0"
+version = "0.1.1"
 description = "Generador de microservicios Spring Boot (CRUD layered/hexagonal/clean, o un esqueleto minimo GitOps-ready) a partir de una definicion de entidad."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -24,8 +24,9 @@ Homepage = "https://github.com/juanfranciscofernandezherreros/crud-automation"
 Repository = "https://github.com/juanfranciscofernandezherreros/crud-automation"
 
 [project.scripts]
-crud-generator = "crud_generator.cli:main"
-generate-crud = "crud_generator.cli:main"
+crud-generator = "crud_generator.__main__:main"
+generate-crud = "crud_generator.__main__:main"
+generate_crud = "crud_generator.__main__:main"
 
 [project.optional-dependencies]
 dev = ["pytest", "jsonschema"]
