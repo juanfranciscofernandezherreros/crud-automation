@@ -1,6 +1,6 @@
 """Configuración de seguridad por endpoint para proyectos generados."""
 
-from .parsing import pluralize
+from .parsing import DEFAULT_ENDPOINTS, pluralize
 
 
 def _csv(value):
@@ -22,7 +22,7 @@ def ask_endpoint_security(entity_name, endpoints, custom_endpoints=None):
 
     rules = []
     print("\nSeguridad por endpoint (roles y permisos/authorities):")
-    for endpoint in endpoints:
+    for endpoint in endpoints or DEFAULT_ENDPOINTS:
         if endpoint not in defaults:
             continue
         method, path, default_roles, default_permissions = defaults[endpoint]
