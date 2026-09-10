@@ -3,8 +3,9 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from crud_generator.security_profiles import build_security_config
+from crud_generator.security_profiles import ask_endpoint_security, build_security_config
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -36,6 +37,21 @@ class EndpointSecurityProfileTest(unittest.TestCase):
         self.assertIn('"ROLE_ADMIN"', config)
         self.assertIn('"cliente:read"', config)
         self.assertIn('.requestMatchers("/api/**").denyAll()', config)
+
+    @patch("builtins.input", return_value="")
+    def test_enter_uses_all_endpoints_and_default_security_without_more_questions(self, input_mock):
+        rules = ask_endpoint_security("Producto", None)
+
+        self.assertEqual(6, len(rules))
+        self.assertEqual(
+            ["list", "get", "create", "update", "patch", "delete"],
+            [rule["name"] for rule in rules],
+        )
+        self.assertEqual(["USER", "ADMIN"], rules[0]["roles"])
+        self.assertEqual(["producto:read"], rules[0]["permissions"])
+        self.assertEqual(["ADMIN"], rules[-1]["roles"])
+        self.assertEqual(["producto:delete"], rules[-1]["permissions"])
+        input_mock.assert_called_once()
 
 
 class SQLServerGeneratedTestsTest(unittest.TestCase):
