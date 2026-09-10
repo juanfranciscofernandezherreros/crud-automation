@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "crud-automation"
-version = "0.1.1"
+version = "0.1.0"
 description = "Generador de microservicios Spring Boot (CRUD layered/hexagonal/clean, o un esqueleto minimo GitOps-ready) a partir de una definicion de entidad."
 readme = "README.md"
 requires-python = ">=3.10"
