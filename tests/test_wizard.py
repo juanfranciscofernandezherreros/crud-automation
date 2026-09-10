@@ -39,7 +39,6 @@ class RunWizardTest(unittest.TestCase):
             "id:int,nombre:string",     # campos
             "",                         # endpoints -> todos
             "n",                        # endpoint personalizado
-            "n",                        # personalizar seguridad -> no
             "",                         # paquete base
             "n",                        # sobrescribir
             "n",                        # verify
@@ -109,7 +108,6 @@ class RunWizardTest(unittest.TestCase):
             "id:int,titulo:string",     # campos
             "list,get,create",          # endpoints
             "n",                        # endpoint personalizado
-            "n",                        # seguridad por defecto
             "com.miempresa.tareas",     # paquete
             "n",                        # sobrescribir
             "s",                        # verify
@@ -211,7 +209,6 @@ class RunWizardTest(unittest.TestCase):
             "postgresql",
             "id:int,numero:string",
             "list,get",
-            "n",
             "n",
             "",
             "pedidos-dev",
