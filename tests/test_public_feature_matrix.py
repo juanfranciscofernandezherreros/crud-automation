@@ -1,5 +1,6 @@
 import contextlib
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -14,6 +15,7 @@ from crud_generator.stream_generator import generate_stream_project
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 EXAMPLES = REPO_ROOT / "examples"
+MAVEN = shutil.which("mvn.cmd") or shutil.which("mvn")
 CRUD_EXAMPLES = (
     "categorias-arbol.json",
     "dividendos.json",
@@ -39,6 +41,20 @@ def working_directory(path):
         yield
     finally:
         os.chdir(previous)
+
+
+def run_maven_verify(project_dir):
+    local_repository = os.environ.get(
+        "CRUD_GENERATOR_MAVEN_REPO", str(REPO_ROOT / ".m2" / "repository")
+    )
+    return subprocess.run(
+        [MAVEN, f"-Dmaven.repo.local={local_repository}", "verify", "--quiet"],
+        cwd=project_dir,
+        capture_output=True,
+        text=True,
+        timeout=180,
+        check=False,
+    )
 
 
 class PublicFeatureMatrixTest(unittest.TestCase):
@@ -157,6 +173,20 @@ class PublicFeatureMatrixTest(unittest.TestCase):
             self.assertEqual(0, result.returncode, result.stdout + result.stderr)
             self.assertIn("generado con éxito", result.stdout)
             self.assertTrue((Path(tmp) / "crud-smoke-minimal/app/pom.xml").is_file())
+
+    @unittest.skipUnless(MAVEN, "Maven no está instalado")
+    def test_minimal_generated_project_compiles_and_tests(self):
+        with tempfile.TemporaryDirectory() as tmp, working_directory(tmp):
+            base_dir = generate_project("Smoke", "", "minimal")
+            result = run_maven_verify(Path(tmp) / base_dir / "app")
+            self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    @unittest.skipUnless(MAVEN, "Maven no está instalado")
+    def test_batch_generated_project_compiles_and_runs_its_tests(self):
+        with tempfile.TemporaryDirectory() as tmp, working_directory(tmp):
+            base_dir = generate_batch_project()
+            result = run_maven_verify(Path(tmp) / base_dir)
+            self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
 
 if __name__ == "__main__":
