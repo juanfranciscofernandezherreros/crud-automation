@@ -9,6 +9,7 @@ from .generator import generate_project
 from .security_profiles import ask_endpoint_security, install_endpoint_security
 from .sqlserver_test_profile import install_sqlserver_test_profile
 from .parsing import (
+    DEFAULT_ENDPOINTS,
     VALID_ENDPOINTS,
     DefinitionError,
     normalize_custom_endpoints,
@@ -119,14 +120,15 @@ def _ask_architecture(default_architecture):
 
 
 def _ask_endpoints(default_endpoints):
-    default_label = ", ".join(default_endpoints) if default_endpoints else "todos"
+    effective_default = list(default_endpoints or DEFAULT_ENDPOINTS)
+    default_label = ", ".join(effective_default)
     while True:
         raw = input(
             f"Endpoints ({', '.join(VALID_ENDPOINTS)}), separados por comas "
             f"[{default_label}]: "
         ).strip()
         if not raw:
-            return default_endpoints
+            return effective_default
         try:
             return normalize_endpoints([value.strip() for value in raw.split(",")])
         except DefinitionError as error:
@@ -184,25 +186,28 @@ def _ask_deployment_options(environment, entity_name):
 
 
 def _print_infrastructure_notice(
-    java_version, database, security_rules, environment, use_argocd
+    java_version, database, security_rules, environment, use_argocd, architecture
 ):
     print()
     print("Configuración seleccionada:")
     print(f"  - Java: {java_version}")
-    print(f"  - Base de datos: {database}")
+    print(f"  - Arquitectura: {architecture}")
     print(f"  - Entorno: {environment}")
-    if database == "sqlserver":
-        print("  - SQL Server: JDBC + Flyway + Testcontainers + HikariCP.")
+    if architecture == "minimal":
+        print("  - Modo minimal: sin CRUD, base de datos ni seguridad por endpoint.")
     else:
-        print("  - PostgreSQL: JDBC + Flyway + Testcontainers.")
-    print(f"  - Seguridad: roles y permisos configurados en {len(security_rules)} endpoints.")
+        print(f"  - Base de datos: {database}")
+        if database == "sqlserver":
+            print("  - SQL Server: JDBC + Flyway + Testcontainers + HikariCP.")
+        else:
+            print("  - PostgreSQL: JDBC + Flyway + Testcontainers.")
+        print(f"  - Seguridad: roles y permisos configurados en {len(security_rules)} endpoints.")
     if environment == "local":
         print("  - Despliegue: Docker Compose local; Kubernetes/Argo CD desactivados.")
     else:
         print("  - Despliegue: manifiestos Kubernetes generados.")
         print(f"  - Argo CD: {'activado' if use_argocd else 'desactivado'}.")
     print("  - CI: GitHub Actions (.github/workflows/ci.yml).")
-    print("  - Observabilidad: Prometheus + Loki + Grafana en docker-compose.yml.")
     print()
 
 
@@ -217,30 +222,39 @@ def run_wizard(conventions=None):
     conventions = conventions or {}
 
     java_version = _ask_java_version()
-    database = _ask_database()
     environment = _ask_environment()
-    try:
-        install_database_profile(database)
-        if database == "sqlserver":
-            install_sqlserver_test_profile()
-    except ValueError as error:
-        raise DefinitionError(str(error)) from error
-    _install_java_version(java_version)
-
     entity_name = _ask_entity_name()
-    attrs_str = _ask_fields()
     architecture = _ask_architecture(conventions.get("architecture"))
-    endpoints = _ask_endpoints(conventions.get("endpoints"))
-    custom_endpoints = _ask_custom_endpoints()
-    security_rules = ask_endpoint_security(entity_name, endpoints, custom_endpoints)
-    install_endpoint_security(security_rules)
+
+    database = None
+    attrs_str = ""
+    endpoints = None
+    custom_endpoints = None
+    security_rules = []
+
+    if architecture != "minimal":
+        database = _ask_database()
+        try:
+            install_database_profile(database)
+            if database == "sqlserver":
+                install_sqlserver_test_profile()
+        except ValueError as error:
+            raise DefinitionError(str(error)) from error
+
+        attrs_str = _ask_fields()
+        endpoints = _ask_endpoints(conventions.get("endpoints"))
+        custom_endpoints = _ask_custom_endpoints()
+        security_rules = ask_endpoint_security(entity_name, endpoints, custom_endpoints)
+        install_endpoint_security(security_rules)
+
+    _install_java_version(java_version)
 
     default_package = conventions.get("package") or "com.example.crud"
     base_package = input(f"Paquete base [{default_package}]: ").strip() or default_package
     use_argocd, namespace, gitops_repo = _ask_deployment_options(environment, entity_name)
 
     _print_infrastructure_notice(
-        java_version, database, security_rules, environment, use_argocd
+        java_version, database, security_rules, environment, use_argocd, architecture
     )
 
     overwrite = _yes_no("¿Sobrescribir si el directorio ya existe?", default=False)
@@ -254,8 +268,7 @@ def run_wizard(conventions=None):
         private = _yes_no("  ¿Repositorio privado?", default=False)
 
     remember = _yes_no(
-        "¿Guardar arquitectura/paquete/endpoints como convenciones para la próxima vez?",
-        default=False,
+        "¿Guardar estas opciones como valores por defecto?", default=False
     )
 
     base_dir = generate_project(
@@ -275,10 +288,16 @@ def run_wizard(conventions=None):
     except ValueError as error:
         raise DefinitionError(str(error)) from error
 
-    print(
-        f"Proyecto {base_dir} generado con éxito con Java {java_version}, {database} "
-        f"y entorno {environment}, incluyendo seguridad por endpoint, tests y docs/index.html."
-    )
+    if architecture == "minimal":
+        print(
+            f"Proyecto {base_dir} generado con éxito con Java {java_version} "
+            f"y entorno {environment} en modo minimal."
+        )
+    else:
+        print(
+            f"Proyecto {base_dir} generado con éxito con Java {java_version}, {database} "
+            f"y entorno {environment}, incluyendo seguridad por endpoint, tests y docs/index.html."
+        )
     if deployment["argocd"]:
         print("Configuración Argo CD generada en deploy/argocd/application.yaml.")
 
