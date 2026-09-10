@@ -10,66 +10,41 @@ Requiere Python 3.10 o superior.
 python -m pip install --upgrade crud-automation
 ```
 
-Comprobar versión instalada:
+## Ejecución
 
-```bash
-python -m pip show crud-automation
-```
-
-## Ejecución mínima
-
-### PowerShell
+### CRUD layered
 
 ```powershell
 python -m crud_generator Producto `
-  "id:int, nombre:string:not_blank:max=120:index, precio:decimal:required:positive"
+  "id:int, nombre:string:not_blank:max=120:index, precio:decimal:required:positive" `
+  --architecture layered
 ```
 
-### Linux / macOS
+### CRUD hexagonal
 
-```bash
-python -m crud_generator Producto \
-  "id:int, nombre:string:not_blank:max=120:index, precio:decimal:required:positive"
+```powershell
+python -m crud_generator Producto `
+  "id:int, nombre:string:not_blank:max=120:index, precio:decimal:required:positive" `
+  --architecture hexagonal
 ```
 
-El generador pedirá la arquitectura:
+### CRUD clean
 
-```text
-1. layered
-2. hexagonal
-3. clean
-4. minimal
+```powershell
+python -m crud_generator Producto `
+  "id:int, nombre:string:not_blank:max=120:index, precio:decimal:required:positive" `
+  --architecture clean
 ```
 
-También puedes indicarla directamente:
+## Modo mínimo
 
-```bash
-python -m crud_generator Producto "id:int, nombre:string" --architecture layered
+`minimal` no genera un CRUD. Crea un esqueleto Spring Boot + Docker sin base de datos, seguridad ni observabilidad.
+
+```powershell
+python -m crud_generator Producto --architecture minimal
 ```
 
-## Otros modos
-
-Desde JSON:
-
-```bash
-python -m crud_generator --json examples/ventas.json
-```
-
-Wizard interactivo:
-
-```bash
-python -m crud_generator --wizard
-```
-
-Forzar regeneración:
-
-```bash
-python -m crud_generator Producto "id:int, nombre:string" --force
-```
-
-## PyPI
-
-https://pypi.org/project/crud-automation/
+Si no indicas `--architecture`, el generador muestra un selector interactivo.
 
 ## Licencia
 
