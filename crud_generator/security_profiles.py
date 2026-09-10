@@ -7,10 +7,7 @@ def _csv(value):
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
-def ask_endpoint_security(entity_name, endpoints, custom_endpoints=None):
-    """Pregunta roles y permisos para cada endpoint seleccionado en el wizard."""
-    entity_lower = entity_name.lower()
-    resource = pluralize(entity_lower)
+def _default_security_rule(entity_lower, resource, endpoint):
     defaults = {
         "list": ("GET", f"/api/{resource}", ["USER", "ADMIN"], [f"{entity_lower}:read"]),
         "get": ("GET", f"/api/{resource}/{{id}}", ["USER", "ADMIN"], [f"{entity_lower}:read"]),
@@ -19,47 +16,69 @@ def ask_endpoint_security(entity_name, endpoints, custom_endpoints=None):
         "patch": ("PATCH", f"/api/{resource}/{{id}}", ["ADMIN"], [f"{entity_lower}:update"]),
         "delete": ("DELETE", f"/api/{resource}/{{id}}", ["ADMIN"], [f"{entity_lower}:delete"]),
     }
+    if endpoint not in defaults:
+        return None
+    method, path, roles, permissions = defaults[endpoint]
+    return {
+        "name": endpoint,
+        "method": method,
+        "path": path,
+        "roles": roles,
+        "permissions": permissions,
+    }
+
+
+def _default_custom_security_rule(entity_lower, resource, endpoint):
+    return {
+        "name": endpoint["name"],
+        "method": endpoint["method"].upper(),
+        "path": f"/api/{resource}{endpoint['path']}",
+        "roles": ["ADMIN"],
+        "permissions": [f"{entity_lower}:{endpoint['name']}"],
+    }
+
+
+def ask_endpoint_security(entity_name, endpoints, custom_endpoints=None):
+    """Aplica seguridad sensata por defecto y solo pregunta si se quiere personalizar."""
+    entity_lower = entity_name.lower()
+    resource = pluralize(entity_lower)
+    selected_endpoints = list(endpoints or DEFAULT_ENDPOINTS)
+    custom_endpoints = custom_endpoints or []
+
+    default_rules = []
+    for endpoint in selected_endpoints:
+        rule = _default_security_rule(entity_lower, resource, endpoint)
+        if rule:
+            default_rules.append(rule)
+    default_rules.extend(
+        _default_custom_security_rule(entity_lower, resource, endpoint)
+        for endpoint in custom_endpoints
+    )
+
+    raw = input(
+        "¿Personalizar seguridad por endpoint? "
+        "(Enter = usar roles/permisos recomendados) (s/N): "
+    ).strip().lower()
+    if raw not in ("s", "si", "sí", "y", "yes"):
+        print(f"  Seguridad por defecto aplicada a {len(default_rules)} endpoints.")
+        return default_rules
 
     rules = []
-    print("\nSeguridad por endpoint (roles y permisos/authorities):")
-    for endpoint in endpoints or DEFAULT_ENDPOINTS:
-        if endpoint not in defaults:
-            continue
-        method, path, default_roles, default_permissions = defaults[endpoint]
-        print(f"\n  {method} {path}")
+    print("\nSeguridad por endpoint (Enter conserva el valor recomendado):")
+    for rule in default_rules:
+        custom = any(endpoint.get("name") == rule["name"] for endpoint in custom_endpoints)
+        suffix = " (personalizado)" if custom else ""
+        print(f"\n  {rule['method']} {rule['path']}{suffix}")
         roles_raw = input(
-            f"    Roles permitidos [{','.join(default_roles)}]: "
+            f"    Roles permitidos [{','.join(rule['roles'])}]: "
         ).strip()
         permissions_raw = input(
-            f"    Permisos requeridos [{','.join(default_permissions)}]: "
+            f"    Permisos requeridos [{','.join(rule['permissions'])}]: "
         ).strip()
         rules.append({
-            "name": endpoint,
-            "method": method,
-            "path": path,
-            "roles": _csv(roles_raw) if roles_raw else default_roles,
-            "permissions": _csv(permissions_raw) if permissions_raw else default_permissions,
-        })
-
-    for endpoint in custom_endpoints or []:
-        method = endpoint["method"].upper()
-        suffix = endpoint["path"]
-        path = f"/api/{resource}{suffix}"
-        default_roles = ["ADMIN"]
-        default_permissions = [f"{entity_lower}:{endpoint['name']}"]
-        print(f"\n  {method} {path} (personalizado)")
-        roles_raw = input(
-            f"    Roles permitidos [{','.join(default_roles)}]: "
-        ).strip()
-        permissions_raw = input(
-            f"    Permisos requeridos [{','.join(default_permissions)}]: "
-        ).strip()
-        rules.append({
-            "name": endpoint["name"],
-            "method": method,
-            "path": path,
-            "roles": _csv(roles_raw) if roles_raw else default_roles,
-            "permissions": _csv(permissions_raw) if permissions_raw else default_permissions,
+            **rule,
+            "roles": _csv(roles_raw) if roles_raw else rule["roles"],
+            "permissions": _csv(permissions_raw) if permissions_raw else rule["permissions"],
         })
     return rules
 
