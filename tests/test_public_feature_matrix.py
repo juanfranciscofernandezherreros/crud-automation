@@ -1,5 +1,7 @@
 import contextlib
+import importlib
 import os
+import pkgutil
 import shutil
 import subprocess
 import sys
@@ -70,6 +72,19 @@ class PublicFeatureMatrixTest(unittest.TestCase):
         self.assertTrue(callable(crud_generator.parse_attributes))
         self.assertTrue(callable(crud_generator.normalize_entity_name))
         self.assertTrue(issubclass(crud_generator.DefinitionError, ValueError))
+
+    def test_every_package_module_imports(self):
+        modules = sorted(
+            module.name
+            for module in pkgutil.iter_modules(
+                crud_generator.__path__, prefix="crud_generator."
+            )
+        )
+        self.assertTrue(modules)
+        for module_name in modules:
+            with self.subTest(module=module_name):
+                imported = importlib.import_module(module_name)
+                self.assertIsNotNone(imported)
 
     def test_all_three_crud_architectures_generate_real_projects(self):
         expected = {
