@@ -10,6 +10,78 @@ from .database_profiles import extract_database_argument, install_database_profi
 from .sqlserver_test_profile import install_sqlserver_test_profile
 
 
+def _extract_feature_mode(args):
+    args = list(args)
+    if "--feature" in args:
+        args.remove("--feature")
+        return args, True
+
+    for option in ("--architecture", "-a"):
+        if option in args:
+            index = args.index(option)
+            if index + 1 < len(args) and args[index + 1].strip().lower() == "feature":
+                del args[index : index + 2]
+                return args, True
+
+    return args, False
+
+
+def _run_feature_mode(args):
+    """Genera un microservicio con la arquitectura feature-based de AGENTS.md.
+
+    Se mantiene como modo explicito para no romper de golpe a consumidores de
+    las arquitecturas layered/hexagonal/clean existentes.
+    """
+    from .cli import (
+        _post_generate,
+        extract_force,
+        extract_github,
+        extract_private,
+        extract_verify,
+    )
+    from .conventions import load_conventions
+    from .feature_generator import generate_feature_project
+    from .parsing import DefinitionError, normalize_entity_name
+
+    try:
+        args, push_github, github_repo_name = extract_github(args)
+        args, private = extract_private(args)
+        args, force = extract_force(args)
+        args, verify = extract_verify(args)
+    except DefinitionError as error:
+        print(f"Error: {error}", file=sys.stderr)
+        return 2
+
+    if len(args) < 2:
+        print(
+            "Uso feature: python -m crud_generator <Entidad> <attr:tipo,...> "
+            "--architecture feature [--force] [--verify] [--github [repo]]"
+        )
+        return 1
+
+    conventions = load_conventions()
+    base_package = conventions.get("package")
+
+    try:
+        entity_name = normalize_entity_name(args[0])
+        attrs_str = " ".join(args[1:])
+        base_dir = generate_feature_project(
+            entity_name,
+            attrs_str,
+            base_package=base_package,
+            overwrite=force,
+        )
+    except DefinitionError as error:
+        print(f"Error: {error}", file=sys.stderr)
+        return 2
+
+    print(
+        f"Proyecto {base_dir} generado con arquitectura feature-based: "
+        "model/entity separados, service interface+impl, dos mappers y paquetes por feature."
+    )
+    return _post_generate(base_dir, verify, push_github, github_repo_name, private)
+
+
 def main(args=None):
     args = sys.argv[1:] if args is None else list(args)
     try:
@@ -20,6 +92,10 @@ def main(args=None):
     except ValueError as error:
         print(f"Error: {error}", file=sys.stderr)
         return 2
+
+    args, feature_mode = _extract_feature_mode(args)
+    if feature_mode:
+        return _run_feature_mode(args)
 
     # Importar despues de instalar el perfil garantiza que parsing/fields
     # capturen el mapa de tipos SQL correcto desde el principio.
