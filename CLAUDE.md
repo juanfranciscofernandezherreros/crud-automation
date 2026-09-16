@@ -1,5 +1,9 @@
 # Reglas del repositorio: crud-automation
 
+## Reglas para código Spring Boot generado
+
+Antes de modificar plantillas Java/Spring, ejemplos generados o comportamiento arquitectónico del generador, lee también `AGENTS.md` y los documentos enlazados bajo `docs/`. Esas reglas están acotadas al código Spring Boot generado y no sustituyen las convenciones propias del código Python de `crud-automation`.
+
 ## Informe HTML de cada commit
 
 Cuando se cree un commit en este repositorio (siempre que el usuario lo pida
