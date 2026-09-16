@@ -2,7 +2,7 @@
 
 These instructions apply to agents working on this repository.
 
-> Important: `crud-automation` itself is a Python generator. The Java/Spring rules below apply to generated Spring Boot code, Java templates, fixtures, examples, and changes that define the generated architecture. They do **not** replace the existing conventions of the Python generator.
+> Important: `crud-automation` itself is a Python generator. The Java/Spring rules below define how generated Spring Boot code should look when the optional agent post-processing step is requested. They do **not** replace the existing conventions of the Python generator.
 
 Also read `CLAUDE.md` for repository-specific commit/reporting rules.
 
@@ -18,6 +18,24 @@ Detailed rules:
 - [`docs/exceptions.md`](docs/exceptions.md)
 - [`docs/testing.md`](docs/testing.md)
 - [`docs/logging.md`](docs/logging.md)
+
+## Generation contract
+
+The rule files belong to `crud-automation`, not to the generated microservice.
+
+When `--apply-agent-rules` is requested, the flow is:
+
+```text
+crud-automation generates the Spring Boot project
+  -> crud-automation loads AGENTS.md + docs/*.md
+  -> an external coding agent runs with the generated project as its working directory
+  -> the rules are supplied to that agent as prompt context
+  -> the agent refactors the generated Java/Spring code to comply
+  -> optional mvn verification runs
+  -> optional GitHub publication runs
+```
+
+The post-processing agent must **not** copy `AGENTS.md` or `docs/*.md` into the generated project. The desired output is compliant application code, not embedded rule documentation.
 
 ## Agent workflow
 
