@@ -2,7 +2,7 @@
 
 import os
 
-from . import documentation, feature_templates, migrations, templates
+from . import documentation, feature_templates, feature_test_templates, migrations, templates
 from .architectures import DEFAULT_BASE_PACKAGE
 from .fields import (
     exceeds_constructor_param_limit,
@@ -245,6 +245,19 @@ def _write_feature(
             test=True,
         ),
         feature_templates.get_service_test(entity_name, feature_package),
+    )
+    write_file(
+        _java_path(
+            base_dir,
+            f"{feature_package}.controller",
+            f"{entity_name}ControllerTest.java",
+            test=True,
+        ),
+        feature_test_templates.get_controller_test(
+            entity_name,
+            entity_lower,
+            feature_package,
+        ),
     )
 
 
