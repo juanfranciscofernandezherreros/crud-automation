@@ -30,6 +30,7 @@ class FeatureGeneratorTest(unittest.TestCase):
 
             project = Path(tmp) / base_dir
             java = project / "src/main/java/com/example/crud/producto"
+            test_java = project / "src/test/java/com/example/crud/producto"
 
             self.assertTrue((java / "model/Producto.java").exists())
             self.assertTrue((java / "entity/ProductoEntity.java").exists())
@@ -39,6 +40,8 @@ class FeatureGeneratorTest(unittest.TestCase):
             self.assertTrue((java / "mapper/ProductoEntityMapper.java").exists())
             self.assertTrue((java / "repository/ProductoRepository.java").exists())
             self.assertTrue((java / "controller/ProductoController.java").exists())
+            self.assertTrue((test_java / "service/ProductoServiceTest.java").exists())
+            self.assertTrue((test_java / "controller/ProductoControllerTest.java").exists())
 
             self.assertFalse((java / "service/impl/ProductoServiceImpl.java").exists())
             self.assertFalse((java / "entity/Producto.java").exists())
@@ -96,6 +99,19 @@ class FeatureGeneratorTest(unittest.TestCase):
             self.assertIn("var created = service.create(model);", controller)
             self.assertNotIn("service.create(mapper.toModel(dto))", controller)
 
+    def test_entity_mapper_uses_separate_model_entity_mapping(self):
+        with tempfile.TemporaryDirectory() as tmp, working_directory(tmp):
+            base_dir = generate_feature_project("Producto", "id:int,nombre:string")
+            project = Path(tmp) / base_dir
+            mapper = (
+                project
+                / "src/main/java/com/example/crud/producto/mapper/ProductoEntityMapper.java"
+            ).read_text(encoding="utf-8")
+
+            self.assertIn("import org.mapstruct.Mapping;", mapper)
+            self.assertIn("ProductoEntity toEntity(Producto model);", mapper)
+            self.assertIn("Producto toModel(ProductoEntity entity);", mapper)
+
     def test_service_unit_test_targets_implementation(self):
         with tempfile.TemporaryDirectory() as tmp, working_directory(tmp):
             base_dir = generate_feature_project("Producto", "id:int,nombre:string")
@@ -108,6 +124,19 @@ class FeatureGeneratorTest(unittest.TestCase):
             self.assertIn("@InjectMocks", test)
             self.assertIn("private ProductoServiceImpl service;", test)
             self.assertIn("var result = service.findById(1);", test)
+
+    def test_controller_test_mocks_service_interface(self):
+        with tempfile.TemporaryDirectory() as tmp, working_directory(tmp):
+            base_dir = generate_feature_project("Producto", "id:int,nombre:string")
+            project = Path(tmp) / base_dir
+            test = (
+                project
+                / "src/test/java/com/example/crud/producto/controller/ProductoControllerTest.java"
+            ).read_text(encoding="utf-8")
+
+            self.assertIn("@WebMvcTest(ProductoController.class)", test)
+            self.assertIn("private ProductoService service;", test)
+            self.assertIn("var model = new Producto();", test)
 
 
 if __name__ == "__main__":
