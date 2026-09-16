@@ -10,6 +10,22 @@ from .database_profiles import extract_database_argument, install_database_profi
 from .sqlserver_test_profile import install_sqlserver_test_profile
 
 
+def _extract_feature_mode(args):
+    args = list(args)
+    if "--feature" in args:
+        args.remove("--feature")
+        return args, True
+
+    for option in ("--architecture", "-a"):
+        if option in args:
+            index = args.index(option)
+            if index + 1 < len(args) and args[index + 1].strip().lower() == "feature":
+                del args[index : index + 2]
+                return args, True
+
+    return args, False
+
+
 def _run_feature_mode(args):
     """Genera un microservicio con la arquitectura feature-based de AGENTS.md.
 
@@ -27,7 +43,6 @@ def _run_feature_mode(args):
     from .feature_generator import generate_feature_project
     from .parsing import DefinitionError, normalize_entity_name
 
-    args = [arg for arg in args if arg != "--feature"]
     try:
         args, push_github, github_repo_name = extract_github(args)
         args, private = extract_private(args)
@@ -40,7 +55,7 @@ def _run_feature_mode(args):
     if len(args) < 2:
         print(
             "Uso feature: python -m crud_generator <Entidad> <attr:tipo,...> "
-            "--feature [--force] [--verify] [--github [repo]]"
+            "--architecture feature [--force] [--verify] [--github [repo]]"
         )
         return 1
 
@@ -78,7 +93,8 @@ def main(args=None):
         print(f"Error: {error}", file=sys.stderr)
         return 2
 
-    if "--feature" in args:
+    args, feature_mode = _extract_feature_mode(args)
+    if feature_mode:
         return _run_feature_mode(args)
 
     # Importar despues de instalar el perfil garantiza que parsing/fields
