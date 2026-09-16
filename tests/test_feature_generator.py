@@ -1,12 +1,17 @@
 """Contrato de la arquitectura feature-based alineada con AGENTS.md."""
 
 import os
+import shutil
+import subprocess
 import tempfile
 import unittest
 from contextlib import contextmanager
 from pathlib import Path
 
 from crud_generator.feature_generator import generate_feature_project
+
+
+MAVEN = shutil.which("mvn.cmd") or shutil.which("mvn")
 
 
 @contextmanager
@@ -137,6 +142,41 @@ class FeatureGeneratorTest(unittest.TestCase):
             self.assertIn("@WebMvcTest(ProductoController.class)", test)
             self.assertIn("private ProductoService service;", test)
             self.assertIn("var model = new Producto();", test)
+
+
+@unittest.skipUnless(MAVEN, "Maven no está instalado")
+class FeatureGeneratedProjectAcceptanceTest(unittest.TestCase):
+
+    def test_generated_feature_project_compiles_and_passes_tests(self):
+        workspace = Path.cwd()
+        with tempfile.TemporaryDirectory(prefix=".feature-generated-", dir=workspace) as tmp:
+            root = Path(tmp)
+            with working_directory(root):
+                base_dir = generate_feature_project(
+                    "Producto",
+                    "id:int,nombre:string:not_blank:max=120,precio:decimal:required:positive",
+                )
+
+            project = root / base_dir
+            local_repository = os.environ.get(
+                "CRUD_GENERATOR_MAVEN_REPO",
+                str(workspace / ".m2" / "repository"),
+            )
+            result = subprocess.run(
+                [MAVEN, f"-Dmaven.repo.local={local_repository}", "test", "--quiet"],
+                cwd=project,
+                capture_output=True,
+                text=True,
+                timeout=180,
+                check=False,
+            )
+
+            if result.returncode != 0:
+                self.fail(
+                    "El proyecto feature generado no compila o sus tests fallan.\n"
+                    f"STDOUT:\n{result.stdout[-6000:]}\n"
+                    f"STDERR:\n{result.stderr[-6000:]}"
+                )
 
 
 if __name__ == "__main__":
