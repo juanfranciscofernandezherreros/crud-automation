@@ -121,6 +121,7 @@ def _write_feature(
     model_package = f"{feature_package}.model"
     entity_package = f"{feature_package}.entity"
     dto_package = f"{feature_package}.dto"
+    reference_attrs = [attr for attr in attrs if attr["type"] == "reference"]
 
     write_file(
         _java_path(base_dir, model_package, f"{entity_name}.java"),
@@ -139,7 +140,14 @@ def _write_feature(
         )
 
     model_enum_imports = generate_enum_import_lines(attrs, model_package)
-    entity_enum_imports = generate_enum_import_lines(attrs, model_package)
+    reference_entity_imports = "\n".join(
+        f"import {base_package}.{attr['references'].lower()}.entity."
+        f"{attr['references']}Entity;"
+        for attr in reference_attrs
+    )
+    entity_imports = "\n".join(
+        item for item in (model_enum_imports, reference_entity_imports) if item
+    )
 
     write_file(
         _java_path(base_dir, entity_package, f"{entity_name}Entity.java"),
@@ -151,7 +159,7 @@ def _write_feature(
             generate_table_unique_constraints_annotation(attrs),
             has_default(attrs),
             include_all_args_builder,
-            entity_enum_imports,
+            entity_imports,
         ),
     )
 
@@ -196,8 +204,6 @@ def _write_feature(
                 model_enum_imports,
             ),
         )
-
-    reference_attrs = [attr for attr in attrs if attr["type"] == "reference"]
 
     generated = {
         (f"{feature_package}.repository", f"{entity_name}Repository.java"):
