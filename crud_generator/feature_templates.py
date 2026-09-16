@@ -113,10 +113,7 @@ def get_web_mapper(entity_name, feature_package):
 
 import {feature_package}.dto.*;
 import {feature_package}.model.{entity_name};
-import org.mapstruct.BeanMapping;
 import org.mapstruct.Mapper;
-import org.mapstruct.MappingTarget;
-import org.mapstruct.NullValuePropertyMappingStrategy;
 
 @Mapper(componentModel = "spring")
 public interface {entity_name}Mapper {{
@@ -128,9 +125,6 @@ public interface {entity_name}Mapper {{
     {entity_name} toModel({entity_name}PatchDTO dto);
 
     {entity_name}ResponseDTO toDto({entity_name} model);
-
-    @BeanMapping(nullValuePropertyMappingStrategy = NullValuePropertyMappingStrategy.IGNORE)
-    void patchModel({entity_name} changes, @MappingTarget {entity_name} target);
 }}
 """
 
@@ -152,7 +146,6 @@ def get_entity_mapper(entity_name, feature_package, reference_attrs=None):
         for attr in reference_attrs
     )
     model_block = f"{model_lines}\n" if model_lines else ""
-    mapping_import = "\nimport org.mapstruct.Mapping;" if reference_attrs else ""
 
     protected_fields = """    @Mapping(target = "id", ignore = true)
     @Mapping(target = "version", ignore = true)
@@ -163,7 +156,8 @@ def get_entity_mapper(entity_name, feature_package, reference_attrs=None):
 import {feature_package}.entity.{entity_name}Entity;
 import {feature_package}.model.{entity_name};
 import org.mapstruct.BeanMapping;
-import org.mapstruct.Mapper;{mapping_import}
+import org.mapstruct.Mapper;
+import org.mapstruct.Mapping;
 import org.mapstruct.MappingTarget;
 import org.mapstruct.NullValuePropertyMappingStrategy;
 
@@ -354,7 +348,6 @@ def get_controller(entity_name, entity_lower, feature_package):
 
 import {feature_package}.dto.*;
 import {feature_package}.mapper.{entity_name}Mapper;
-import {feature_package}.model.{entity_name};
 import {feature_package}.service.{entity_name}Service;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -431,7 +424,6 @@ import {feature_package}.entity.{entity_name}Entity;
 import {feature_package}.mapper.{entity_name}EntityMapper;
 import {feature_package}.model.{entity_name};
 import {feature_package}.repository.{entity_name}Repository;
-import {base_exception_import(feature_package)}
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -482,8 +474,3 @@ class {entity_name}ServiceTest {{
     }}
 }}
 """
-
-
-def base_exception_import(feature_package):
-    root = feature_package.rsplit(".", 1)[0]
-    return f"import {root}.exception.ResourceNotFoundException;"
